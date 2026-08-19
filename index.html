@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="EMBERQUEST 2D — a six-level action RPG. Slay the Void Sovereign and save the realm.">
+<title>EMBERQUEST 2D — action RPG</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="candle" id="candle" title="...">🕯️</div>
+
+<div id="gameWrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <span id="hName">HERO</span><span class="hud-sep"></span>
+    <div class="hp-wrap"><span id="hHpText">100/100</span><div class="bar"><div id="hpFill"></div></div></div>
+    <span id="hLevel" class="lvl-txt">📍 LV 1/6</span>
+    <span class="gold-txt" id="hGold">0g</span>
+    <span id="hPot">🧪 x2</span>
+    <span id="hSword">⚔️ 1</span>
+    <span id="hArmor">🛡️ 1</span>
+    <span id="hKills">☠️ 0</span>
+    <span id="hDash">💨 READY</span>
+    <span class="hud-sep"></span>
+    <span id="hWeapon" class="weapon-txt">⚔️ SWORD</span>
+    <span class="weapon-hint">1-4 SWITCH · SHIFT DASH · P PAUSE · M SOUND</span>
+  </div>
+
+  <div id="overlay">
+    <h2>EMBER<span>QUEST</span></h2>
+    <p>Slay the Void Sovereign and save the realm across 6 lands.<br>
+       Move <span class="kbd">WASD</span> · Attack <span class="kbd">SPACE</span> · Dash <span class="kbd">SHIFT</span> · Potion <span class="kbd">E</span> · Weapons <span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span><span class="kbd">4</span> or <span class="kbd">Q</span> · Pause <span class="kbd">P</span> · Sound <span class="kbd">M</span></p>
+    <input type="text" id="nameInput" maxlength="14" placeholder="NAME YOUR HERO..." autocomplete="off" spellcheck="false" autofocus>
+    <button class="btn" id="beginBtn">⚡ BEGIN</button>
+    <p class="menu-secret">Secrets hide in this realm. Curiosity and old codes are rewarded.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/config.js"></script>
+<script src="js/sfx.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
