@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="BLOB KNIGHT — a six-level action RPG. Guide the last blob knight through six depths and cast the Void Sovereign from his throne.">
+<title>BLOB KNIGHT — action RPG</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫧</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="candle" id="candle" title="...">🕯️</div>
+
+<div id="gameWrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="hudTop">
+      <div class="hud-ident">
+        <span id="hName">HERO</span>
+        <span id="hClass" class="class-txt">Knight</span>
+        <span class="lvl-badge">LV <span id="hLevel">1/6</span><span id="hPLevel" class="plvl">⬆1</span></span>
+      </div>
+      <div class="hud-top-right">
+        <span class="gold-txt" id="hGold">0g</span>
+        <span id="hKills">☠ 0</span>
+      </div>
+    </div>
+    <div id="hudBars">
+      <div class="hp-wrap"><span id="hHpText">100/100</span><div class="bar"><div id="hpFill"></div></div></div>
+      <div class="hp-wrap thin" id="shieldWrap" style="display:none"><span id="hShieldText">🛡 0</span><div class="bar shield"><div id="shieldFill"></div></div></div>
+      <div class="hp-wrap thin"><span id="hStamText">⚡ 100</span><div class="bar stam"><div id="stamFill"></div></div></div>
+    </div>
+    <div id="hudGear">
+      <span class="gear-slot primary" id="hWeapon">⚔️ SWORD</span>
+      <span class="gear-slot secondary" id="hSecondary">R —</span>
+      <span class="gear-slot tool" id="hBomb" title="Press F to throw">💣 0</span>
+      <span class="gear-slot tool" id="hTurret" title="Press G to deploy">🤖 0</span>
+      <span class="gear-slot tool" id="hTrap" title="Press T to set">🪤 0</span>
+      <span class="gear-slot" id="hPot">🧪 2</span>
+      <span id="hDash">💨 READY</span>
+      <span id="hCombo" class="combo-txt"></span>
+    </div>
+    <div id="hudHint"><span id="hintKeys"></span></div>
+  </div>
+
+  <div id="bossBar">
+    <span id="bossBarName">BOSS</span>
+    <div class="bar boss"><div id="bossBarFill"></div></div>
+  </div>
+
+  <div id="bossBanner">⚔️ BOSS ⚔️</div>
+
+  <div id="overlay">
+    <h2>BLOB<span>KNIGHT</span></h2>
+    <p>You are the last blob knight. Wield your sword, hurl your tools, and carry the spark through six depths.<br>
+       Move <span class="kbd">WASD</span> · Sword <span class="kbd">SPACE</span> · Ranged <span class="kbd">R</span> · Dash <span class="kbd">SHIFT</span> · Potion <span class="kbd">E</span> · Bomb <span class="kbd">F</span> · Turret <span class="kbd">G</span> · Trap <span class="kbd">T</span> · Weapons <span class="kbd">Q</span>/<span class="kbd">1-4</span> · Pause <span class="kbd">P</span></p>
+    <input type="text" id="nameInput" maxlength="14" placeholder="NAME YOUR HERO..." autocomplete="off" spellcheck="false" autofocus>
+    <button class="btn" id="beginBtn">⚡ BEGIN</button>
+    <p class="menu-secret">Secrets hide in this realm. Curiosity and old codes are rewarded.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div id="vignette"></div>
+<div id="tutHint"></div>
+<div id="crawl"><div id="crawlText"></div></div>
+
+<!-- idea 70: touch controls -->
+<div id="touchControls">
+  <div id="joyZone"><div id="joyKnob"></div></div>
+  <div class="touchBtns">
+    <button class="tbtn" id="tAttack">⚔️</button>
+    <button class="tbtn" id="tSecondary">🏹</button>
+    <button class="tbtn" id="tBomb">💣</button>
+    <button class="tbtn" id="tDash">💨</button>
+    <button class="tbtn" id="tPotion">🧪</button>
+    <button class="tbtn" id="tCycle">🔁</button>
+    <button class="tbtn" id="tPause">⏸</button>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/sfx.js"></script>
+<script src="js/world.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
+<script src="js/meta.js"></script>
+<script src="js/steam.js"></script>
+<script>
+  /* boot once every module is loaded (game.js can't call resetGame() before meta.js) */
+  function boot() { resetGame(); }
+  boot();
+</script>
+</body>
+</html>
