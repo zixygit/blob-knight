@@ -275,16 +275,18 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 }
 /* landscape phones: full-bleed arena, slim HUD strip, thumb-friendly cluster */
 @media (max-height:520px) and (orientation:landscape) {
-  #gameWrap{--hudH:68px;width:100vw;border-radius:0;border:none;box-shadow:none}
-  #hud{gap:2px;padding:3px 4px 0}
+  #gameWrap{--hudH:76px;width:100vw;border-radius:0;border:none;box-shadow:none}
+  #hud{gap:2px;padding:2px 4px 0}
   #hudTop{padding:2px 6px}
   .hud-ident{font-size:10px}
   .hud-ident #hName{font-size:11px}
   .hud-top-right{font-size:11px;gap:8px}
   #hudBars{gap:4px}
-  .hp-wrap{padding:1px 6px}
+  .hp-wrap{padding:1px 5px}
+  .hp-wrap span{font-size:9px}
   #hudGear{gap:3px}
-  .gear-slot{padding:1px 5px;font-size:8.5px}
+  .gear-slot{padding:1px 4px;font-size:8.5px}
+  #hDash{font-size:9px;padding:1px 4px}
   canvas{max-height:calc(100dvh - var(--hudH))}
   #bossBar{top:calc(var(--hudH) + 4px);width:min(70%,420px)}
   #joyZone{width:56%;height:84%}

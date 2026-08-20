@@ -7,7 +7,7 @@ const CFG = {
   W: 800,
   H: 600,
   MARGIN: 30,
-  TITLE: "BLOB KNIGHT", VERSION: "0.04",   // idea 100: version tag
+  TITLE: "BLOB KNIGHT", VERSION: "0.05",   // idea 100: version tag
   PLAYER: { r: 14, speed: 170, maxHp: 100, atk: 10, def: 4, potions: 2, potionHeal: 40 },
   SWORD_RANGE: 42,
   SWORD_ARC: 1.1,

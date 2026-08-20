@@ -2,7 +2,7 @@
 
 Ten depths. One sword. One very determined blob.
 
-![Version](https://img.shields.io/badge/version-0.04-blue)
+![Version](https://img.shields.io/badge/version-0.05-blue)
 
 A vanilla-JS canvas action RPG — no engines, no frameworks. You are the last of the Blob Knights: swing the sword with one hand, blast ranged weapons with the other, and throw everything else you own at the dark.
 

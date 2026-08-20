@@ -192,14 +192,43 @@ test.describe("BLOB KNIGHT smoke", () => {
     expect(state.hp).toBeGreaterThan(0);
   });
 
-  test("mobile: HUD strip sits above the canvas; touch buttons spread with no overlap", async ({ page }) => {
-    /* phone viewport + touch emulation so the joystick/button cluster is live */
-    await page.setViewportSize({ width: 390, height: 700 });
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  test("mobile: menu tappable, HUD above canvas, fixed joystick, spread buttons", async ({ browser }) => {
+    /* phone landscape viewport with real touch events */
+    const ctx = await browser.newContext({ viewport: { width: 812, height: 375 }, hasTouch: true });
+    const page = await ctx.newPage();
     await page.goto("http://localhost:8123/index.html");
     await page.waitForTimeout(200);
 
+    /* 1) while a menu is open the joystick zone is hidden so PLAY is tappable */
+    const menu = await page.evaluate(() => {
+      const tc = document.getElementById("touchControls");
+      const playBtn = [...document.querySelectorAll("#overlay .btn")].find(b => b.textContent.includes("PLAY"));
+      const r = playBtn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { tcDisplay: tc.style.display, hitTop: hit ? (hit.id || hit.className || hit.tagName) : null };
+    });
+    expect(menu.tcDisplay).toBe("none");
+    expect(menu.hitTop).toContain("btn");
+
+    /* 2) gameplay brings the touch UI back */
+    await page.evaluate(() => { STATS.runs = 1; beginGame(); });
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => document.getElementById("touchControls").style.display)).toBe("flex");
+
+    /* 3) fixed joystick: tapping the zone must NOT move the base */
+    const baseBefore = await page.evaluate(() => {
+      const b = document.getElementById("joyBase").getBoundingClientRect();
+      return [b.x, b.y, b.width, b.height];
+    });
+    await page.touchscreen.tap(300, 200);
+    await page.waitForTimeout(100);
+    const baseAfter = await page.evaluate(() => {
+      const b = document.getElementById("joyBase").getBoundingClientRect();
+      return [b.x, b.y, b.width, b.height];
+    });
+    expect(baseAfter).toEqual(baseBefore);
+
+    /* 4) HUD strip sits above the canvas — nothing clipped */
     const layout = await page.evaluate(() => {
       const hud = document.getElementById("hud").getBoundingClientRect();
       const cv = document.getElementById("game").getBoundingClientRect();
@@ -207,17 +236,18 @@ test.describe("BLOB KNIGHT smoke", () => {
         const r = b.getBoundingClientRect();
         return { id: b.id, x: r.x, y: r.y, w: r.width, h: r.height };
       });
-      return { hudBottom: Math.round(hud.bottom), cvTop: Math.round(cv.top), hudTop: Math.round(hud.top), btns };
+      const gear = document.getElementById("hudGear").getBoundingClientRect();
+      return { hudBottom: Math.round(hud.bottom), cvTop: Math.round(cv.top), gearBottom: Math.round(gear.bottom), hudBottomR: Math.round(hud.bottom), btns };
     });
-
-    /* HUD text never overlaps the play field */
     expect(layout.hudBottom).toBeLessThanOrEqual(layout.cvTop + 1);
+    /* gear chips fully inside the strip (no clipping / overlap) */
+    expect(layout.gearBottom).toBeLessThanOrEqual(layout.hudBottomR);
     /* the cluster is live on touch devices */
     expect(layout.btns.length).toBe(7);
     /* attack is the big anchor button */
     const atk = layout.btns.find(b => b.id === "tAttack");
     expect(atk.w).toBeGreaterThan(100);
-    /* buttons are spread — none overlap another */
+    /* buttons are spread — none overlaps another */
     for (const a of layout.btns) {
       for (const b of layout.btns) {
         if (a === b) continue;
@@ -225,5 +255,6 @@ test.describe("BLOB KNIGHT smoke", () => {
         expect(clear).toBe(true);
       }
     }
+    await ctx.close();
   });
 });

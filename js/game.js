@@ -1055,6 +1055,7 @@ function continueRun() {
   if (!loadGame()) { flash("No saved run found", "#9a90b8"); resetGame(); return; }
   SFX.unlock();
   hideOverlay();
+  setTouchUI(true);
   setupLevel(G.level);
   G.phase = "play";
   renderHUD();
@@ -1091,6 +1092,7 @@ const TUTORIAL_STEPS = [
 ];
 function runTutorial() {
   hideOverlay();
+  setTouchUI(true);
   G.phase = "play";
   G.level = 0;
   game.player = new Player(CFG.MARGIN + 60, CFG.H / 2);
@@ -1258,6 +1260,7 @@ function buyWeapon(w) {
 
 function nextLevel() {
   hideOverlay();
+  setTouchUI(true);
   rerolled = false;   // merchant discount lasts one visit
   const n = G.level + 1;
   if (n > MAX_LEVEL) return winGame();
@@ -1269,7 +1272,7 @@ function nextLevel() {
   flash(`LEVEL CLEAR! ⚔️+1 ❤️+20 🧪+1`, "#6bff9a");
 }
 
-function resumePlay() { hideOverlay(); G.phase = "play"; }
+function resumePlay() { hideOverlay(); G.phase = "play"; setTouchUI(true); }
 
 /* ---------- options menu (ideas 65-68, 71-72) — also the menu hub ---------- */
 function openOptions() {
@@ -1421,7 +1424,7 @@ function openDifficultyMenu() {
       fn: () => { G.difficulty = key; flash(`Difficulty: ${d.name}`, "#6fc3ff"); togglePause(); },
     })));
 }
-function resumePaused() { hideOverlay(); G.phase = "play"; }
+function resumePaused() { hideOverlay(); G.phase = "play"; setTouchUI(true); }
 
 function toggleMute() {
   G.mute = !G.mute;
@@ -1500,6 +1503,7 @@ function restartRun() {
 /* ---------- overlays ---------- */
 function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
   resetJoy();   // drop any stuck joystick input while a menu is up
+  setTouchUI(false);   // idea 104: never let the joystick/buttons block menu taps
   const o = $("overlay");
   o.innerHTML = `<h2>${title}</h2><p>${body}</p>`;
   o.classList.toggle("main-menu", !!addName);
@@ -1523,6 +1527,7 @@ function hideOverlay() { $("overlay").innerHTML = ""; $("overlay").style.display
 
 function beginGame() {
   /* name entry removed — the hero keeps their name across runs (idea: no menu detour after death) */
+  setTouchUI(true);
   const th = $("tutHint"); if (th) th.classList.remove("show");
   /* idea 62: track runs */
   if (typeof STATS !== "undefined" && !G.fromContinue) { STATS.runs++; saveStats(); }
@@ -1615,6 +1620,12 @@ function resetJoy() {
   const k = $("joyKnob"); if (k) k.style.transform = "translate(0,0)";
   const b = $("joyBase"); if (b) { b.style.left = ""; b.style.top = ""; b.style.bottom = ""; }
 }
+/* hide the whole touch UI (joystick zone + buttons) while any overlay menu is up,
+   so its high z-index never blocks menu buttons from being tapped */
+function setTouchUI(on) {
+  const tc = $("touchControls");
+  if (tc) tc.style.display = on && isTouch ? "flex" : "none";
+}
 function initTouch() {
   if (!isTouch) { $("touchControls").style.display = "none"; return; }
   $("touchControls").style.display = "flex";
@@ -1623,11 +1634,7 @@ function initTouch() {
   zone.addEventListener("pointerdown", e => {
     if (joy.active) return;            // one stick at a time
     e.preventDefault();
-    /* floating joystick: base snaps under the finger, clamped to the screen */
-    const r = R();
-    base.style.bottom = "auto";
-    base.style.left = clamp(e.clientX - r, 8, window.innerWidth - r * 2 - 8) + "px";
-    base.style.top = clamp(e.clientY - r, 8, window.innerHeight - r * 2 - 8) + "px";
+    /* fixed joystick: the base stays anchored; tilt is measured from its centre */
     joy = { active: true, id: e.pointerId, dx: 0, dy: 0 };
     knob.style.transform = "translate(0,0)";
     try { zone.setPointerCapture(e.pointerId); } catch (err) { /* no-op */ }
