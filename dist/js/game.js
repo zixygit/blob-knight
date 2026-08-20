@@ -263,6 +263,14 @@ function tryHeavy() {
         { knock: 0.6, crit: hit.crit, color: "#ffd166", hitStop: 0.08 });
     }
   }
+  /* idea: heavy slam destroys incoming projectiles */
+  for (let i = game.projectiles ? game.projectiles.length - 1 : -1; i >= 0; i--) {
+    const pr = game.projectiles[i];
+    if (pr.team !== "player" && dist(p, pr) < CFG.SWORD_RANGE * 1.6 + pr.r) {
+      game.projectiles.splice(i, 1);
+      game.effects.push({ type: "spark", x: pr.x, y: pr.y, vx: (Math.random() - 0.5) * 160, vy: -rand(30, 90), t: 0.35, color: "#ffd166" });
+    }
+  }
   flash("HEAVY SLAM!", "#ffd166");
   G.chargeT = 0;
 }
@@ -1003,7 +1011,7 @@ function continueRun() {
 
 /* idea 65: credits */
 function showCredits() {
-  showOverlay("ℹ️ CREDITS", `<b>${CFG.TITLE}</b> — a six-level action RPG (v${CFG.VERSION})<br>Made with vanilla JavaScript + Canvas.<br>Code, design, and synth SFX by you.<br>Music: procedural synth loops.<br><br>Thanks for playing!`, "⬅ BACK", resetGame);
+  showOverlay("ℹ️ CREDITS", `<b>${CFG.TITLE}</b> — a ${MAX_LEVEL}-depth action RPG (v${CFG.VERSION})<br>Made with vanilla JavaScript + Canvas.<br>Code, design, and synth SFX by you.<br>Music: procedural synth loops.<br><br>Thanks for playing!`, "⬅ BACK", resetGame);
 }
 
 /* dedicated help / info panel — long-form text lives here, off the HUD */
@@ -1020,7 +1028,7 @@ function showHelp() {
     • Certain lands fear fire, ice, or lightning — pick weapons to match.<br>
     • Smash crates: they hide gold, loot, and lore scrolls.<br>
     • Ranged weapons fire on <span class="kbd">R</span> — the sword stays at the ready.<br><br>
-    <b>THE SIX DEPTHS</b><br>
+    <b>THE ${MAX_LEVEL} DEPTHS</b><br>
     Slay every foe to open the door, then spend gold at the merchant. Clear all ${MAX_LEVEL} depths.`,
     "⬅ BACK", back);
 }
@@ -1086,7 +1094,7 @@ function winGame() {
        "Even dim embers can win the day. The realms hold on."];
   if (G.ngPlus) {
     showOverlay("🏆 BLOB KNIGHT COMPLETE — NEW GAME +",
-      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}<br><br>🜂 A <b>SEVENTH DOOR</b> creaks open beyond the throne…`, "🜂 ENTER THE VOID THRONE", startVoidThrone);
+      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}<br><br>🜂 A <b>SECRET DOOR</b> creaks open beyond the throne…`, "🜂 ENTER THE VOID THRONE", startVoidThrone);
   } else {
     showOverlay("🏆 BLOB KNIGHT COMPLETE",
       `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}`, "🏆 PLAY AGAIN", resetGame);
@@ -1099,7 +1107,7 @@ function startVoidThrone() {
   saveStats();
   G.ngPlus = true;
   G.victories = (G.victories || 0) + 1;
-  setupLevel(7);
+  setupLevel(11);
   G.phase = "play";
   hideOverlay();
   flash("🜂 VOID THRONE — the true ending awaits", "#c2553d");
@@ -1206,16 +1214,35 @@ function nextLevel() {
 
 function resumePlay() { hideOverlay(); G.phase = "play"; }
 
-/* ---------- options menu (ideas 65-68, 71-72) ---------- */
+/* ---------- options menu (ideas 65-68, 71-72) — also the menu hub ---------- */
 function openOptions() {
   G.phase = G.phase === "paused" ? "paused" : "options";
-  showOverlay("⚙️ OPTIONS", "Settings apply immediately.", null, null, [
+  /* idea 20: class picker lives here (menu stays minimal) */
+  const classBtns = CLASSES.map(c => ({
+    label: `${c.icon} ${c.name} — ${c.desc}`, primary: c.name === G.className,
+    fn: () => { G.className = c.name; flash(`Class: ${c.name}`, "#6fc3ff"); openOptions(); },
+  }));
+  const extras = [
+    { label: "💀 BOSS RUSH", fn: startBossRush, note: `${MAX_LEVEL} bosses back to back` },    // idea 36
+    { label: "☀️ DAILY CHALLENGE", fn: startDaily, note: "Seeded run of the day" },              // idea 61
+    { label: "📊 STATS", fn: showStats },                                                        // idea 62
+    { label: "📖 BESTIARY", fn: showBestiary },                                                  // idea 63
+    { label: "🏅 ACHIEVEMENTS", fn: showAchievements },                                          // idea 64
+    { label: "📜 JOURNAL", fn: showJournal, note: `${G.loreNotes.length}/${LORE_NOTES.length} notes` },  // idea 85
+    { label: "☠️ TELEMETRY", fn: showTelemetry },                                               // idea 99
+    { label: "❓ HELP", fn: showHelp },
+    { label: "ℹ️ CREDITS", fn: showCredits },                                                   // idea 65
+  ];
+  if (G.doubleBossUnlocked) extras.unshift({ label: "⚔️ DOUBLE BOSS", fn: startDoubleBoss, note: "Twins challenge" });  // idea 37
+  showOverlay("⚙️ SETTINGS", "Settings apply immediately.", null, null, [
     { label: `🔊 VOLUME: ${Math.round(SETTINGS.vol * 100)}%`, fn: () => { SETTINGS.vol = Math.round((SETTINGS.vol + 0.1) * 10) / 10; if (SETTINGS.vol > 1) SETTINGS.vol = 0; saveSettings(); SFX.pickup(); openOptions(); } },
     { label: `💥 SCREEN SHAKE: ${SETTINGS.shake ? "ON" : "OFF"}`, fn: () => { SETTINGS.shake = SETTINGS.shake ? 0 : 1; saveSettings(); openOptions(); } },
     { label: `👁 COLORBLIND: ${SETTINGS.colorblind}`, fn: () => { const modes = ["off", "deuteranopia", "protanopia"]; SETTINGS.colorblind = modes[(modes.indexOf(SETTINGS.colorblind) + 1) % modes.length]; saveSettings(); openOptions(); } },
     { label: `⌨️ REBIND: ATTACK (${SETTINGS.keymap.attack.toUpperCase()})`, fn: () => { flash("Press a key to rebind ATTACK...", "#6fc3ff"); window._rebind = "attack"; hideOverlay(); } },
     { label: `⌨️ REBIND: RANGED (${SETTINGS.keymap.secondary.toUpperCase()})`, fn: () => { flash("Press a key to rebind RANGED...", "#6fc3ff"); window._rebind = "secondary"; hideOverlay(); } },
     { label: `⌨️ REBIND: DASH (${SETTINGS.keymap.dash.toUpperCase()})`, fn: () => { flash("Press a key to rebind DASH...", "#6fc3ff"); window._rebind = "dash"; hideOverlay(); } },
+    ...classBtns,
+    ...extras,
     { label: `⬅️ BACK`, fn: G.phase === "paused" ? openPauseMenu : resetGame },
   ]);
 }
@@ -1250,12 +1277,12 @@ const MERCHANT_LINES = [
   "That cursed trinket? It pays the rent. Try it if you dare.",
   "Fresh potions. The mushrooms were VERY cooperative.",
   "The void's prices only go up, friend.",
-  "Rumor says a seventh door hides beyond the throne…",
+  "Rumor says a hidden door waits beyond the throne…",
 ];
 
 /* idea 85: collectible lore notes → journal */
 const LORE_NOTES = [
-  { id: "emberfell", title: "The Emberfell", text: "A burning star fell in the first age. Where it struck, the six depths grew. Its last spark still smoulders beneath the Void Throne." },
+  { id: "emberfell", title: "The Emberfell", text: "A burning star fell in the first age. Where it struck, the ten depths grew. Its last spark still smoulders beneath the Void Throne." },
   { id: "goblin", title: "Goblin of Fangmoor", text: "The Chieftain claims the forest by tooth and torch. His kin fear the deep woods — he does not. That is why he rules." },
   { id: "cave", title: "Echo of the Caves", text: "Cave singers learned to shape stone with song. Their final chord collapsed the gates behind the Hollow Warden." },
   { id: "ruins", title: "Ruin of the First Order", text: "The First Order built the throne to contain the Sovereign. They forgot that thrones can be seized, not just built." },
@@ -1362,34 +1389,25 @@ function resetGame() {
     orbits: [], deployables: [], burnZones: [] });
   rerolled = false;
   G.aoeZones = []; G.dmgTaken = 0; G.slowmoT = 0; G.branchChosen = false;
-  /* idea 20: class picker on the menu */
-  const classBtns = CLASSES.map(c => ({
-    label: `${c.icon} ${c.name} — ${c.desc}`, primary: c.name === G.className,
-    fn: () => { G.className = c.name; flash(`Class: ${c.name}`, "#6fc3ff"); resetGame(); },
-  }));
-  const continueBtn = { label: "📖 CONTINUE", fn: continueRun, note: "Resume last run" };
-  const rushBtn = { label: "💀 BOSS RUSH", fn: startBossRush, note: "6 bosses back to back" };  // idea 36
-  const dailyBtn = { label: "☀️ DAILY CHALLENGE", fn: startDaily, note: "Seeded run of the day" }; // idea 61
-  const statsBtn = { label: "📊 STATS", fn: showStats };                                         // idea 62
-  const bestiBtn = { label: "📖 BESTIARY", fn: showBestiary };                                   // idea 63
-  const achBtn = { label: "🏅 ACHIEVEMENTS", fn: showAchievements };                             // idea 64
-  const journalBtn = { label: "📜 JOURNAL", fn: showJournal, note: `${G.loreNotes.length}/${LORE_NOTES.length} notes` };  // idea 85
-  const teleBtn = { label: "☠️ TELEMETRY", fn: showTelemetry };                                // idea 99
-  const doubleBtn = G.doubleBossUnlocked
-    ? { label: "⚔️ DOUBLE BOSS", fn: startDoubleBoss, note: "Twins challenge" }               // idea 37
-    : null;
   function statsRuns() { try { return STATS.runs || 0; } catch (e) { return 0; } }
   const firstRun = statsRuns() === 0;
   const buttons = [
-    { label: "⚡ BEGIN", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
-    ...classBtns,
-    continueBtn, rushBtn, dailyBtn, statsBtn, bestiBtn, achBtn, journalBtn, teleBtn,
-    { label: "⚙️ OPTIONS", fn: openOptions },   // idea 65: options from menu
-    { label: "❓ HELP", fn: showHelp },
-    { label: "ℹ️ CREDITS", fn: showCredits },   // idea 65
+    { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
+    { label: "📖 CONTINUE", fn: continueRun, note: "Resume last run" },
+    { label: "⚙️ SETTINGS", fn: openOptions },
   ];
-  if (doubleBtn) buttons.push(doubleBtn);
   showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
+  /* difficulty selector — compact chips below the main buttons */
+  const dh = document.createElement("div");
+  dh.className = "menu-diff";
+  for (const [key, d] of Object.entries(DIFFICULTIES)) {
+    const b = document.createElement("button");
+    b.className = "btn diff-chip" + (G.difficulty === key ? " on" : "");
+    b.textContent = d.name;
+    b.onclick = () => { G.difficulty = key; flash(`Difficulty: ${d.name} — ${d.desc}`, "#6fc3ff"); resetGame(); };
+    dh.appendChild(b);
+  }
+  $("overlay").appendChild(dh);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1462,6 +1480,8 @@ function beginGame() {
   G.gold += meta.gold * 50;
   G.potions += meta.potion;
   G.crit += meta.crit * 0.05;
+  /* idea: extreme difficulty — start with only 2 HP */
+  if (G.difficulty === "extreme") { G.maxHp = 2; G.hp = 2; }
   renderHUD();
   SFX.unlock();
   SFX.levelup();

@@ -25,6 +25,24 @@ function attackSword(game) {
       }
     }
   }
+  /* idea: sword slash deflects enemy projectiles back at them */
+  for (let i = game.projectiles ? game.projectiles.length - 1 : -1; i >= 0; i--) {
+    const pr = game.projectiles[i];
+    if (pr.team === "player") continue;
+    if (dist(p, pr) < CFG.SWORD_RANGE + pr.r) {
+      const ang = Math.atan2(pr.y - p.y, pr.x - p.x);
+      let diff = Math.abs(ang - p.dir);
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      diff = Math.abs(diff);
+      if (diff < CFG.SWORD_ARC || dist(p, pr) < pr.r + 12) {
+        pr.vx = -pr.vx; pr.vy = -pr.vy;
+        pr.team = "player";
+        pr.ttl = 5;
+        game.effects.push({ type: "spark", x: pr.x, y: pr.y, vx: Math.cos(ang) * 140, vy: Math.sin(ang) * 140, t: 0.3, color: "#8fd4ff" });
+        SFX.hit();
+      }
+    }
+  }
 }
 
 /* Wave Blade: an expanding shockwave ring that bursts out and

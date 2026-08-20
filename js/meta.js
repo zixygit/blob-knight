@@ -79,6 +79,7 @@ const DIFFICULTIES = {
   normal: { name: "NORMAL", mult: 1.0, desc: "The realm as intended" },
   hard: { name: "HARD", mult: 1.4, desc: "Enemies deal 40% more damage" },
   nightmare: { name: "NIGHTMARE", mult: 1.8, desc: "Enemies deal 80% more, take 25% less" },
+  extreme: { name: "EXTREME", mult: 2.2, desc: "Enemies deal 120% more — start with 2 HP" },
 };
 function applyDifficultyMult(dmg) {
   return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult);

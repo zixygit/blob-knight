@@ -52,7 +52,7 @@ function buildWorld(n, seed) {
   }
 
   /* idea 41: themed hazard tiles */
-  const themes = { 3: "lava", 4: "ice", 5: "void", 6: "void" };
+  const themes = { 3: "lava", 4: "ice", 5: "void", 6: "void", 7: "lava", 8: "ice", 9: "lava", 10: "void" };
   const theme = themes[n];
   if (theme && n >= 3) {
     const count = n >= 5 ? 4 : 3;

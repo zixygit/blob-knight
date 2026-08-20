@@ -61,7 +61,7 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 /* ---------- HUD: gear / tools (bottom-left) ---------- */
 #hudGear{
   position:absolute;left:10px;bottom:10px;
-  display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:70%;
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:58%;
 }
 .gear-slot{
   background:rgba(13,11,20,.72);border:1px solid #3b2f5e;border-radius:7px;
@@ -80,12 +80,12 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 .combo-txt.active{animation:dashpulse .3s infinite}
 @keyframes dashpulse{0%,100%{opacity:1}50%{opacity:.55}}
 
-/* ---------- HUD: contextual key hint (bottom-center, desktop) ---------- */
+/* ---------- HUD: contextual key hint (bottom-right, desktop) ---------- */
 #hudHint{
-  position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+  position:absolute;bottom:8px;right:10px;left:auto;transform:none;
   font-size:9px;letter-spacing:1px;color:#9a90b8;
   background:rgba(13,11,20,.55);border:1px solid #2a2440;border-radius:6px;
-  padding:2px 8px;white-space:nowrap;max-width:96%;overflow:hidden;text-overflow:ellipsis;
+  padding:2px 8px;white-space:nowrap;max-width:34%;overflow:hidden;text-overflow:ellipsis;
   pointer-events:none;
 }
 
@@ -132,6 +132,10 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   width:min(360px,92%);text-align:left;display:flex;gap:8px;align-items:center;justify-content:center;
 }
 .btn:hover{background:#322649;border-color:#ff7847}
+/* main-menu difficulty chips */
+.menu-diff{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:2px;grid-column:1/-1}
+.diff-chip{width:auto;flex:0 0 auto;padding:6px 14px;font-size:11px;letter-spacing:1.5px;text-align:center}
+.diff-chip.on{background:#3a2c5a;border-color:#6fc3ff;color:#fff}
 #overlay input{
   font-family:inherit;font-size:14px;letter-spacing:2px;text-transform:uppercase;
   background:#241c3a;color:#e8e3f5;border:1px solid #3b2f5e;border-radius:8px;

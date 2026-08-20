@@ -41,7 +41,7 @@ function draw(game) {
     ctx.fillText("BLOB KNIGHT", CFG.W / 2, 150);
     ctx.shadowBlur = 12; ctx.fillStyle = "#e8e3f5";
     ctx.font = "bold 22px monospace";
-    ctx.fillText("SIX DEPTHS • ONE BLOB", CFG.W / 2, 194);
+    ctx.fillText("TEN DEPTHS • ONE BLOB", CFG.W / 2, 194);
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#9a90b8";
     ctx.font = "12px monospace";

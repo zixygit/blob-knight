@@ -7,7 +7,7 @@ const CFG = {
   W: 800,
   H: 600,
   MARGIN: 30,
-  TITLE: "BLOB KNIGHT", VERSION: "1.4.0",   // idea 100: version tag
+  TITLE: "BLOB KNIGHT", VERSION: "1.5.0",   // idea 100: version tag
   PLAYER: { r: 14, speed: 170, maxHp: 100, atk: 10, def: 4, potions: 2, potionHeal: 40 },
   SWORD_RANGE: 42,
   SWORD_ARC: 1.1,
@@ -16,7 +16,7 @@ const CFG = {
   DASH_CD: 1.6,
 };
 
-const MAX_LEVEL = 6;
+const MAX_LEVEL = 10;
 
 /* ---------- enemy archetypes (stats can be overridden per level) ---------- */
 const ENEMY_TYPES = {
@@ -177,8 +177,103 @@ const LEVELS = {
     },
     bossReward: 400,
   },
-  /* idea 88: secret 7th level — post-credits, after a New Game+ victory */
   7: {
+    name: "THE ASHEN FIELDS",
+    bg: "#241a10", wall: "#4a3620",
+    minions: [
+      { name: "EMBER WHELP",    type: "chaser",  count: 3 },
+      { name: "FLAME HUSK",     type: "shooter", count: 2, proj: { speed: 340, r: 7, color: "#ff8b3d", dmg: [7, 10] } },
+      { name: "MAGMA BOMB",     type: "bomber",  count: 2 },
+      { name: "ASH SWARM",      type: "swarm",   count: 3 },
+      { name: "INFERNAL BRUTE", type: "elite",   count: 1 },
+    ],
+    boss: {
+      name: "KAELTHAR, ASH WARDEN", kind: "boss", isBoss: true,
+      hp: 430, r: 30, speed: 90, color: "#ff8b3d", dmg: [11, 16],
+      volley: { count: 5, spread: 0.5, speed: 340, dmg: [9, 13], color: "#ffb45e" },
+      radial: { count: 16, speed: 250, dmg: [8, 12], color: "#ff8b3d" },
+      summon: { type: "imp", name: "ASH MOTE", count: 2, cd: 8 },
+      spiral: { count: 3, step: 0.22, twist: 0.6, speed: 210, dmg: [7, 10], color: "#ffb45e" },
+      laser: { speed: 440, dmg: [11, 15], color: "#ff8b3d", sweep: 2.5, cd: 6.5 },
+      volleyCd: 2.2, radialCd: 3.4, enrageAt: 0.55, enrage2At: 0.25,
+    },
+    bossReward: 320,
+  },
+  8: {
+    name: "THE SUNKEN ARCHIVES",
+    bg: "#0e1a22", wall: "#22404f",
+    minions: [
+      { name: "ICE GOBLIN",     type: "chaser",   count: 2 },
+      { name: "CRYPT FIEND",    type: "shooter",  count: 2, proj: { speed: 300, r: 6, color: "#b8c4d8", dmg: [5, 8] } },
+      { name: "BONE CALLER",    type: "summoner", count: 1 },
+      { name: "COURT HEALER",   type: "healer",   count: 1 },
+      { name: "SPECTRAL SNIPER", type: "sniper",  count: 1 },
+      { name: "SKULL CHARGER",  type: "charger",  count: 1 },
+      { name: "BONE GOLIATH",   type: "elite",    count: 1 },
+    ],
+    boss: {
+      name: "LURIAN, THE ARCHIVIST", kind: "boss", isBoss: true,
+      hp: 480, r: 32, speed: 85, color: "#5ab8d4", dmg: [10, 15],
+      volley: { count: 5, spread: 0.45, speed: 350, dmg: [10, 14], color: "#a8e6f0", slow: 2.0 },
+      radial: { count: 16, speed: 240, dmg: [8, 12], color: "#7fd4e8" },
+      summon: { type: "phantom", name: "ARCHIVE WRAITH", count: 2, cd: 8 },
+      aoe: { radius: 80, count: 3, dmg: [9, 13], delay: 1.0, color: "#7fd4e8", cd: 8 },
+      volleyCd: 2.1, radialCd: 3.3, enrageAt: 0.55, enrage2At: 0.26,
+    },
+    bossReward: 360,
+  },
+  9: {
+    name: "THE CRIMSON PEAKS",
+    bg: "#2a0e0e", wall: "#4a1a1a",
+    minions: [
+      { name: "EMBER WHELP",    type: "chaser",  count: 2 },
+      { name: "FLAME HUSK",     type: "shooter", count: 3, proj: { speed: 340, r: 7, color: "#ff8b3d", dmg: [7, 10] } },
+      { name: "MAGMA BOMB",     type: "bomber",  count: 2 },
+      { name: "ASH SWARM",      type: "swarm",   count: 3 },
+      { name: "AVALANCHE BRUTE", type: "charger", count: 2 },
+      { name: "INFERNAL BRUTE", type: "elite",   count: 2 },
+    ],
+    boss: {
+      name: "VOLKRATH, CRIMSON TITAN", kind: "boss", isBoss: true,
+      hp: 560, r: 36, speed: 90, color: "#ff5a2a", dmg: [13, 19],
+      volley: { count: 6, spread: 0.5, speed: 370, dmg: [11, 15], color: "#ff8b3d" },
+      radial: { count: 18, speed: 260, dmg: [9, 13], color: "#ffb45e" },
+      summon: { type: "imp", name: "CINDER MOTE", count: 3, cd: 7 },
+      spiral: { count: 4, step: 0.2, twist: 0.6, speed: 230, dmg: [8, 12], color: "#ff8b3d" },
+      laser: { speed: 470, dmg: [13, 17], color: "#ff5a2a", sweep: 2.8, cd: 6 },
+      despair: { count: 28, speed: 310, dmg: [11, 15], color: "#ff2a6a" },
+      volleyCd: 1.9, radialCd: 3.0, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.08,
+    },
+    bossReward: 450,
+  },
+  10: {
+    name: "THE WORLD'S END",
+    bg: "#0a0a12", wall: "#26263e",
+    minions: [
+      { name: "NULL WRAITH",    type: "phantom",  count: 3 },
+      { name: "VOID WEAVER",    type: "summoner", count: 2 },
+      { name: "VOID SEED",      type: "bomber",   count: 2 },
+      { name: "VOID MARKSMAN",  type: "sniper",   count: 2 },
+      { name: "VOID SWARM",     type: "swarm",    count: 3 },
+      { name: "VOID SENTINEL",  type: "elite",    count: 2 },
+      { name: "BONE CALLER",    type: "summoner", count: 1 },
+    ],
+    boss: {
+      name: "THARAN, THE WORLD-ENDER", kind: "boss", isBoss: true,
+      hp: 700, r: 38, speed: 100, color: "#c2553d", dmg: [14, 20],
+      volley: { count: 6, spread: 0.5, speed: 380, dmg: [12, 16], color: "#a88cff" },
+      radial: { count: 20, speed: 270, dmg: [10, 14], color: "#c0a8f0" },
+      summon: { type: "imp", name: "END MOTE", count: 4, cd: 7 },
+      spiral: { count: 5, step: 0.2, twist: 0.6, speed: 240, dmg: [9, 13], color: "#a88cff" },
+      laser: { speed: 500, dmg: [14, 18], color: "#c2553d", sweep: 3.0, cd: 6 },
+      aoe: { radius: 100, count: 4, dmg: [11, 15], delay: 1.0, color: "#c2553d", cd: 7 },
+      despair: { count: 32, speed: 320, dmg: [12, 16], color: "#ff2a6a" },
+      volleyCd: 1.8, radialCd: 2.8, enrageAt: 0.6, enrage2At: 0.3, despairAt: 0.1,
+    },
+    bossReward: 550,
+  },
+  /* idea 88: secret level — post-credits, after a New Game+ victory */
+  11: {
     name: "THE HOLLOW THRONE",
     bg: "#07060e", wall: "#1c1a34",
     minions: [
@@ -219,7 +314,7 @@ const WEAPONS = {
 };
 
 /* idea 51: elemental damage + zone weaknesses */
-const ELEMENT_WEAKNESS = { 1: null, 2: "ice", 3: "ice", 4: "fire", 5: "lightning", 6: "lightning" };
+const ELEMENT_WEAKNESS = { 1: null, 2: "ice", 3: "ice", 4: "fire", 5: "lightning", 6: "lightning", 7: "fire", 8: "ice", 9: "lightning", 10: "fire" };
 const ELEMENTS = { fire: "#ff8b3d", ice: "#7fd4e8", lightning: "#ffd166" };
 
 /* idea 52: throwable bombs as consumable */
