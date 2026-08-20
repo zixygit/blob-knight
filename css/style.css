@@ -108,7 +108,7 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 /* ---------- overlays / menus ---------- */
 #overlay{
   position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-  background:rgba(8,6,14,.72);z-index:8;text-align:center;padding:20px;gap:10px;
+  background:#0b0914;z-index:8;text-align:center;padding:20px;gap:10px;
   overflow-y:auto;
 }
 #overlay h2{letter-spacing:5px;font-size:28px;margin-bottom:6px}
@@ -158,59 +158,48 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   background:#241c3a;border:1px solid #6bff9a;color:#6bff9a;padding:10px 18px;
   border-radius:8px;font-size:14px;letter-spacing:1px;display:none;
   animation:dashpulse 1.6s infinite;max-width:92vw;text-align:center;
+  pointer-events:none;
 }
 #tutHint.show{display:block}
 
 /* ---------- idea 70: touch controls ---------- */
 #touchControls{position:fixed;inset:0;pointer-events:none;z-index:14;display:none;touch-action:none}
+/* big floating joystick zone: the left half of the screen */
 #joyZone{
-  position:absolute;left:16px;bottom:150px;width:132px;height:132px;border-radius:50%;
-  border:2px solid rgba(155,144,184,.4);background:rgba(13,11,20,.35);
+  position:absolute;left:0;bottom:0;width:60%;height:78%;
   pointer-events:auto;touch-action:none;
 }
+#joyBase{
+  position:absolute;left:18px;bottom:150px;width:140px;height:140px;border-radius:50%;
+  border:2px solid rgba(155,144,184,.4);background:rgba(13,11,20,.35);
+}
 #joyKnob{
-  position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;
-  background:rgba(111,195,255,.5);transform:translate(-50%,-50%);transition:transform .05s;
+  position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;
+  background:rgba(111,195,255,.5);transform:translate(-50%,-50%);transition:transform .04s;
 }
 .touchBtns{
   position:absolute;right:12px;bottom:16px;display:grid;gap:9px;
-  grid-template-columns:repeat(2,64px);grid-template-rows:repeat(4,64px);
+  grid-template-columns:repeat(2,66px);grid-template-rows:repeat(4,58px);
   pointer-events:auto;
 }
 .tbtn{
-  width:64px;height:64px;border-radius:50%;border:2px solid #3b2f5e;
-  background:rgba(36,28,58,.82);color:#e8e3f5;font-size:23px;cursor:pointer;
+  width:66px;height:58px;border-radius:16px;border:2px solid #3b2f5e;
+  background:rgba(36,28,58,.82);color:#e8e3f5;font-size:22px;cursor:pointer;
   touch-action:none;user-select:none;-webkit-user-select:none;
   display:flex;align-items:center;justify-content:center;
 }
 .tbtn:active{background:#3a2c5a;transform:scale(.94)}
 #tAttack{
-  grid-column:1;grid-row:1 / span 2;width:72px;height:72px;font-size:30px;
+  grid-column:1 / span 2;grid-row:4;width:100%;height:64px;border-radius:32px;font-size:28px;
   background:rgba(20,32,48,.9);border-color:#2f4a68;
 }
-#tSecondary{grid-column:2;grid-row:1}
-#tDash{grid-column:2;grid-row:2}
-#tPotion{grid-column:2;grid-row:3}
+#tSecondary{grid-column:2;grid-row:2}
+#tDash{grid-column:2;grid-row:3}
+#tPotion{grid-column:1;grid-row:2}
 #tBomb{grid-column:1;grid-row:3}
-#tCycle{grid-column:2;grid-row:4}
-#tPause{grid-column:1;grid-row:4;font-size:20px}
+#tCycle{grid-column:2;grid-row:1;font-size:18px}
+#tPause{grid-column:1;grid-row:1;font-size:18px}
 
-/* idea 83: intro lore crawl */
-#crawl{
-  position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
-  background:#05040a;overflow:hidden;
-}
-#crawl.show{display:flex}
-#crawlText{
-  width:560px;max-width:86vw;text-align:center;color:#9a90b8;font-size:15px;line-height:2;
-  animation:crawlUp 7s linear forwards;
-}
-@keyframes crawlUp{
-  0%{transform:translateY(46vh);opacity:0}
-  12%{opacity:1}
-  88%{opacity:1}
-  100%{transform:translateY(-46vh);opacity:0}
-}
 .merchant{color:#ffd166;font-style:italic;display:block;margin-top:6px;font-size:13px}
 
 /* ---------- small screens / phones ---------- */
@@ -228,17 +217,26 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   #bossBar{top:82px;width:min(82%,420px)}
   #overlay h2{font-size:22px}
   #overlay p{font-size:12px}
-  #joyZone{left:8px;bottom:150px;width:112px;height:112px}
-  .touchBtns{right:8px;bottom:10px;gap:7px;grid-template-columns:repeat(2,56px);grid-template-rows:repeat(4,56px)}
-  .tbtn{width:56px;height:56px;font-size:20px}
-  #tAttack{width:64px;height:64px;font-size:26px}
-  #candle{top:8px;right:10px;font-size:20px}
+  #joyZone{width:62%;height:80%}
+  #joyBase{left:10px;bottom:150px;width:120px;height:120px}
+  #joyKnob{width:46px;height:46px}
+  .touchBtns{right:8px;bottom:10px;gap:7px;grid-template-columns:repeat(2,58px);grid-template-rows:repeat(4,50px)}
+  .tbtn{width:58px;height:50px;font-size:20px;border-radius:14px}
+  #tAttack{height:56px;font-size:26px;border-radius:28px}
+  #candle{display:none}
   .toast{top:10px;font-size:12px;padding:8px 12px}
-  #tutHint{bottom:170px;font-size:12px}
+  #tutHint{bottom:170px;font-size:12px;pointer-events:none}
 }
-@media (max-height:420px) and (orientation:landscape) {
-  #joyZone{left:8px;bottom:90px;width:100px;height:100px}
-  .touchBtns{grid-template-columns:repeat(2,52px);grid-template-rows:repeat(4,52px);gap:6px}
-  .tbtn{width:52px;height:52px;font-size:19px}
-  #tAttack{width:60px;height:60px;font-size:24px}
+/* landscape phones: full-bleed arena, centered gear strip, thumb-friendly controls */
+@media (max-height:520px) and (orientation:landscape) {
+  #gameWrap{max-width:min(100vw, calc((100dvh - 8px) * 4 / 3));width:100vw;border-radius:0;border:none;box-shadow:none}
+  #joyZone{width:56%;height:88%}
+  #joyBase{bottom:64px;left:10px;width:106px;height:106px}
+  #joyKnob{width:40px;height:40px}
+  .touchBtns{right:10px;bottom:6px;gap:6px;grid-template-columns:repeat(2,54px);grid-template-rows:repeat(4,44px)}
+  .tbtn{width:54px;height:44px;font-size:18px;border-radius:12px}
+  #tAttack{height:48px;font-size:24px;border-radius:24px}
+  #hudGear{left:50%;transform:translateX(-50%);max-width:42%;justify-content:center;bottom:6px}
+  #bossBar{top:84px}
+  #tutHint{bottom:auto;top:62px}
 }

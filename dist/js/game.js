@@ -73,7 +73,7 @@ addEventListener("keydown", e => {
   const km = KM();
   const isAction = Object.values(km).includes(k);
   if (isAction) e.preventDefault();
-  if (k === km.attack && !e.repeat) { G.charging = true; weaponAttack(game); }
+  if (k === km.attack && !e.repeat) { G.charging = true; G.chargeT = 0; }   // charge starts on press; attack fires on release
   if (k === km.secondary && !e.repeat) secondaryAttack(game);
   if (k === km.potion && !e.repeat) drinkPotion();
   if (k === km.weapon && !e.repeat) cycleWeapon();
@@ -84,22 +84,21 @@ addEventListener("keydown", e => {
   if (k === km.bomb && !e.repeat) throwBomb(game);
   if (k === km.turret && !e.repeat) deployTurretKey();
   if (k === km.trap && !e.repeat) deployTrapKey();
-  /* ENTER skips any interstitial screen (shop / branch / level-up / lore crawl) */
+  /* ENTER skips any interstitial screen (shop / branch / level-up) or starts from the menu */
   if (k === "enter" && !e.repeat) {
     if (G.phase === "shop") nextLevel();
     else if (G.phase === "branch") { G.branchBonus = "combat"; nextLevel(); }
     else if (G.phase === "levelup") { const b = document.querySelector("#overlay .btn:not([disabled])"); if (b) b.click(); }
-    else if (G.phase === "menu" && document.getElementById("crawl").classList.contains("show")) {
-      clearTimeout(window._crawlT);
-      document.getElementById("crawl").classList.remove("show");
-      hideOverlay();
-      runTutorial();
-    }
+    else if (G.phase === "menu") beginGame();
   }
 });
 addEventListener("keyup", e => {
   keys[e.key.toLowerCase()] = false;
-  if (e.key.toLowerCase() === KM().attack && G.charging) { G.charging = false; if (G.chargeT >= 0.6) tryHeavy(); G.chargeT = 0; }
+  if (e.key.toLowerCase() === KM().attack && G.charging) {
+    G.charging = false;
+    if (G.chargeT >= 0.6) tryHeavy(); else weaponAttack(game);
+    G.chargeT = 0;
+  }
 });
 addEventListener("pointerdown", () => SFX.unlock(), { once: true });
 /* right-click fires the secondary weapon */
@@ -141,7 +140,7 @@ game.G.bossSpawned = false;
       game.G.loot.push(new Pickup(wpick(["gold", "herb", "stone", "charm", "rune"]), CFG.W / 2 + rand(-80, 80), CFG.H / 2 + rand(-60, 60)));
     }
     G.branchBonus = null;
-    flash("COMBAT PATH: spoils of war await", "#ffd166");
+    flash("COMBAT PATH: +LOOT", "#ffd166");
   }
 
   /* idea 36: boss rush — skip minions, boss right away */
@@ -361,7 +360,7 @@ function damagePlayer(d, sx, sy, fx) {
   if (fx === "slow") {
     const wasChilled = G.slowT > 0.3;
     G.slowT = 2.6;
-    if (!wasChilled) flash("CHILLED! Movement slowed", "#7fd4e8");
+    if (!wasChilled) flash("CHILLED!", "#7fd4e8");
   }
   SFX.hurt();
   renderHUD();
@@ -638,10 +637,10 @@ function update(dt) {
   G.slowT = Math.max(0, G.slowT - dt);
   /* idea 14: stamina regen */
   if (G.stamina < STAMINA.max) G.stamina = Math.min(STAMINA.max, G.stamina + STAMINA.regen * dt);
-  /* idea 15: charging heavy — hold SPACE after an attack */
+  /* idea 15: charging heavy — hold the attack button, release to slam */
   if (G.charging && G.phase === "play" && game.player) {
     G.chargeT = Math.min(2, G.chargeT + dt);
-    if (G.chargeT > 0.3 && G.chargeT - dt <= 0.3) flash("CHARGING... release for heavy!", "#ffd166");
+    if (G.chargeT > 0.6 && G.chargeT - dt <= 0.6) flash("HEAVY READY — RELEASE!", "#ffd166");
   }
   /* idea 18: regenerating shield */
   G.shieldRegenT = Math.max(0, G.shieldRegenT - dt);
@@ -737,8 +736,7 @@ function update(dt) {
     game._gpLb = gp.buttons[4] && gp.buttons[4].pressed;
   }
 
-  /* idea 72: hold-to-attack */
-  if (SETTINGS.holdAttack && keys[km.attack] && p.attackCd <= 0 && G.chargeT < 0.6) weaponAttack(game);
+  /* attack fires on release (quick tap or charged heavy) — nothing here */
 
   /* idea 39: circle-vs-rect obstacle collision for the player */
   for (const o of game.obstacles || []) {
@@ -759,7 +757,7 @@ function update(dt) {
       else if (h.type === "lava") {
         G.slowT = Math.max(G.slowT, 0.8);
         if ((p.lavaT || 0) <= 0) { p.lavaT = 0.35; damagePlayer(4, p.x, p.y); }
-        if (Math.random() < 0.05) flash("LAVA BURNS!", "#ff5a2a");
+        if (Math.random() < 0.05) flash("LAVA!", "#ff5a2a");
       }
       else if (h.type === "void") { G.slowT = Math.max(G.slowT, 1.4); }
     }
@@ -848,7 +846,7 @@ function update(dt) {
           d.hitOnce = true;
           game.effects.push({ type: "hit", x: e.x, y: e.y - 10, t: 0.3, txt: d.dmg, color: "#e8d17a" });
           if (e.hp <= 0) killEnemy(e);
-          flash("TRAP SPRUNG!", "#e8d17a");
+          flash("TRAP!", "#e8d17a");
           break;
         }
       }
@@ -889,11 +887,11 @@ function update(dt) {
   if (sh && !sh.used && dist(p, sh) < 40 && keys["e"]) {
     sh.used = true;
     if (G.gold >= 50 && Math.random() < 0.5) {
-      G.gold -= 50; G.atk += 2; flash("SHRINE GAMBLE WIN: +2 ATK", "#ffd166");
+      G.gold -= 50; G.atk += 2; flash("SHRINE: +2 ATK", "#ffd166");
     } else if (G.gold >= 50) {
-      G.gold -= 50; flash("SHRINE GAMBLE LOST: -50 gold", "#ff8b3d");
+      G.gold -= 50; flash("SHRINE: -50G", "#ff8b3d");
     } else {
-      G.hp = Math.max(1, G.hp - 15); G.maxHp += 10; flash("SHRINE: PAID HP FOR +10 MAX HP", "#6bff9a");
+      G.hp = Math.max(1, G.hp - 15); G.maxHp += 10; flash("SHRINE: -15 HP → +10 MAX", "#6bff9a");
     }
     game.effects.push({ type: "boom", x: sh.x, y: sh.y, t: 0.5 });
     renderHUD();
@@ -1016,18 +1014,17 @@ function showHelp() {
     • Smash crates: they hide gold, loot, and lore scrolls.<br>
     • Ranged weapons fire on <span class="kbd">R</span> — the sword stays at the ready.<br><br>
     <b>THE SIX DEPTHS</b><br>
-    Slay every foe to open the door, then spend gold at the campfire merchant. Cast the Void Sovereign from his throne.`,
+    Slay every foe to open the door, then spend gold at the merchant. Clear all ${MAX_LEVEL} depths.`,
     "⬅ BACK", back);
 }
 
 /* idea 73: tutorial room 0 with floating prompts */
 const TUTORIAL_STEPS = [
-  "MOVE with WASD or arrows — approach the training dummies",
-  "ATTACK with SPACE (hold to charge a HEAVY SLAM)",
-  "DASH with SHIFT — watch your stamina ⚡",
-  "Slay the dummies to open the door",
+  "MOVE — walk to the dummies",
+  "KILL BOTH DUMMIES",
 ];
 function runTutorial() {
+  hideOverlay();
   G.phase = "play";
   G.level = 0;
   game.player = new Player(CFG.MARGIN + 60, CFG.H / 2);
@@ -1035,7 +1032,6 @@ function runTutorial() {
   game.enemies = [];
   game.projectiles = []; game.waves = []; game.effects = []; game.arcs = [];
   game.G.loot = [];
-  game.G.door = { x: CFG.W - 36, y: CFG.H / 2, r: 14, open: false };
   game.G.bossSpawned = true;   // no boss spawn for dummies
   game.G.minionsLeft = 2;
   const dummy = Object.assign({}, ENEMY_TYPES.brute, { name: "TRAINING DUMMY", hp: 14, maxHp: 14, speed: 0, dmg: [1, 1] });
@@ -1043,28 +1039,23 @@ function runTutorial() {
   const d2 = new Enemy(Object.assign({}, dummy), CFG.W / 2 + 50, CFG.H / 2 + 20);
   game.enemies.push(d1, d2);
   game.tutStep = 0;
-  $("tutHint").classList.add("show");
   updateTutHint();
 }
 function updateTutHint() {
   const el = $("tutHint");
   if (!el) return;
-  if (game.tutStep === 4) el.classList.remove("show");
-  else {
-    el.textContent = TUTORIAL_STEPS[Math.min(game.tutStep, TUTORIAL_STEPS.length - 1)];
-    el.classList.add("show");
-  }
+  el.textContent = TUTORIAL_STEPS[Math.min(game.tutStep, TUTORIAL_STEPS.length - 1)];
+  el.classList.add("show");
 }
 function updateTutorial() {
   const p = game.player;
   if (!p) return;
-  if (game.tutStep === 0 && game.player.dashT <= 0 && (keys[KM().right] || keys["arrowright"] || keys["d"])) game.tutStep = 1;
-  if (game.tutStep === 1 && G.kills > 0) game.tutStep = 2;
-  if (game.tutStep === 2 && game.player.dashT > 0) game.tutStep = 3;
-  if (game.tutStep === 3 && game.G.minionsLeft <= 0) { game.tutStep = 4; game.G.door.open = true; }
-  if (game.tutStep === 4 && dist(p, game.G.door) < 34) {
+  if (game.tutStep === 0 && game.player.dashT <= 0 && (keys[KM().right] || keys["arrowright"] || keys["d"] || joy.dx !== 0)) game.tutStep = 1;
+  /* end as soon as both dummies are slain */
+  if (game.tutStep === 1 && game.G.minionsLeft <= 0 && G.kills >= 2) {
     G.level = 1;
     beginGame();
+    return;
   }
   updateTutHint();
 }
@@ -1141,7 +1132,7 @@ let rerolled = false;
 function rerollShop() {
   G.gold -= 30;
   rerolled = true;
-  flash("Merchant restocks... (25% off next visit)", "#6bff9a");
+  flash("REROLL: 25% OFF", "#6bff9a");
   openShop();
 }
 function shopPrice(cost) { return Math.round(cost * (rerolled ? 0.75 : 1)); }
@@ -1203,7 +1194,7 @@ function nextLevel() {
   setupLevel(n);
   G.phase = "play";
   SFX.levelup();
-  flash(`LEVEL CLEAR! Sword → ${G.sword}, Max HP +20, +1 potion`, "#6bff9a");
+  flash(`LEVEL CLEAR! ⚔️+1 ❤️+20 🧪+1`, "#6bff9a");
 }
 
 function resumePlay() { hideOverlay(); G.phase = "play"; }
@@ -1214,7 +1205,6 @@ function openOptions() {
   showOverlay("⚙️ OPTIONS", "Settings apply immediately.", null, null, [
     { label: `🔊 VOLUME: ${Math.round(SETTINGS.vol * 100)}%`, fn: () => { SETTINGS.vol = Math.round((SETTINGS.vol + 0.1) * 10) / 10; if (SETTINGS.vol > 1) SETTINGS.vol = 0; saveSettings(); SFX.pickup(); openOptions(); } },
     { label: `💥 SCREEN SHAKE: ${SETTINGS.shake ? "ON" : "OFF"}`, fn: () => { SETTINGS.shake = SETTINGS.shake ? 0 : 1; saveSettings(); openOptions(); } },
-    { label: `🕹️ HOLD-TO-ATTACK: ${SETTINGS.holdAttack ? "ON" : "OFF"}`, fn: () => { SETTINGS.holdAttack = !SETTINGS.holdAttack; saveSettings(); openOptions(); } },
     { label: `👁 COLORBLIND: ${SETTINGS.colorblind}`, fn: () => { const modes = ["off", "deuteranopia", "protanopia"]; SETTINGS.colorblind = modes[(modes.indexOf(SETTINGS.colorblind) + 1) % modes.length]; saveSettings(); openOptions(); } },
     { label: `⌨️ REBIND: ATTACK (${SETTINGS.keymap.attack.toUpperCase()})`, fn: () => { flash("Press a key to rebind ATTACK...", "#6fc3ff"); window._rebind = "attack"; hideOverlay(); } },
     { label: `⌨️ REBIND: RANGED (${SETTINGS.keymap.secondary.toUpperCase()})`, fn: () => { flash("Press a key to rebind RANGED...", "#6fc3ff"); window._rebind = "secondary"; hideOverlay(); } },
@@ -1255,23 +1245,6 @@ const MERCHANT_LINES = [
   "The void's prices only go up, friend.",
   "Rumor says a seventh door hides beyond the throne…",
 ];
-
-/* idea 83: intro lore crawl */
-const LORE_CRAWL = [
-  "<b>BLOB KNIGHT</b>",
-  "Long ago the Blobfell struck the world, and from its goo rose six realms of ooze and shadow.",
-  "The Void Sovereign watched from the deepest dark — and grew hungry.",
-  "Now the realms gutter one by one. Only one order stood against the dark: the Blob Knights.",
-  "They are gone. All but you — the last of the line, and the least squishy of them all.",
-  "<i>Six depths. One sword. One very determined blob. Do not let the spark die.</i>",
-];
-function runLoreCrawl() {
-  const c = $("crawl"), t = $("crawlText");
-  c.classList.add("show");
-  t.innerHTML = LORE_CRAWL.map(line => `<p>${line}</p>`).join("");
-  t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
-  window._crawlT = setTimeout(() => { c.classList.remove("show"); hideOverlay(); runTutorial(); }, 7300);
-}
 
 /* idea 85: collectible lore notes → journal */
 const LORE_NOTES = [
@@ -1401,7 +1374,7 @@ function resetGame() {
   function statsRuns() { try { return STATS.runs || 0; } catch (e) { return 0; } }
   const firstRun = statsRuns() === 0;
   const buttons = [
-    { label: "⚡ BEGIN", fn: () => firstRun && !G.skipTutorial ? runLoreCrawl() : beginGame(), primary: true, note: firstRun && !G.skipTutorial ? "First run: lore crawl + quick tutorial" : undefined },
+    { label: "⚡ BEGIN", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
     ...classBtns,
     continueBtn, rushBtn, dailyBtn, statsBtn, bestiBtn, achBtn, journalBtn, teleBtn,
     { label: "⚙️ OPTIONS", fn: openOptions },   // idea 65: options from menu
@@ -1409,7 +1382,7 @@ function resetGame() {
     { label: "ℹ️ CREDITS", fn: showCredits },   // idea 65
   ];
   if (doubleBtn) buttons.push(doubleBtn);
-  showOverlay("BLOB<span>KNIGHT</span>", `You are the last blob knight. Carry the spark through ${MAX_LEVEL} depths and cast the Void Sovereign from his throne.`, null, null, buttons, true);
+  showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1436,6 +1409,7 @@ function resetRunStart() {
 
 /* ---------- overlays ---------- */
 function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
+  resetJoy();   // drop any stuck joystick input while a menu is up
   const o = $("overlay");
   o.innerHTML = `<h2>${title}</h2><p>${body}</p>`;
   o.classList.toggle("main-menu", !!addName);
@@ -1467,7 +1441,8 @@ function hideOverlay() { $("overlay").innerHTML = ""; $("overlay").style.display
 
 function beginGame() {
   const inp = document.querySelector("#overlay input");
-  G.name = ((inp && inp.value.trim()) || "HERO").toUpperCase();
+  if (inp) G.name = ((inp && inp.value.trim()) || "HERO").toUpperCase();   // preserve name from a tutorial transition
+  const th = $("tutHint"); if (th) th.classList.remove("show");
   /* idea 62: track runs */
   if (typeof STATS !== "undefined" && !G.fromContinue) { STATS.runs++; saveStats(); }
   G.fromContinue = false;
@@ -1526,7 +1501,7 @@ function renderHUD() {
   $("hTrap").textContent = "🪤 " + (G.traps || 0);
   $("hWeapon").textContent = WEAPONS.sword.icon + " " + WEAPONS.sword.name;
   const sec = game.secondary && WEAPONS[game.secondary] ? WEAPONS[game.secondary] : null;
-  $("hSecondary").textContent = sec ? `R ${sec.icon} ${sec.name}` : "R —";
+  $("hSecondary").textContent = sec ? `${sec.icon} ${sec.name}` : "—";
   $("hSecondary").classList.toggle("on", !!sec);
   const comboEl = $("hCombo");
   if (comboEl) {
@@ -1550,33 +1525,58 @@ function renderHUD() {
 /* ---------- touch controls (idea 70) ---------- */
 const isTouch = "ontouchstart" in window;
 let joy = { active: false, id: null, dx: 0, dy: 0 };
+function resetJoy() {
+  joy.active = false; joy.id = null; joy.dx = 0; joy.dy = 0;
+  const k = $("joyKnob"); if (k) k.style.transform = "translate(0,0)";
+  const b = $("joyBase"); if (b) { b.style.left = ""; b.style.top = ""; b.style.bottom = ""; }
+}
 function initTouch() {
   if (!isTouch) { $("touchControls").style.display = "none"; return; }
   $("touchControls").style.display = "flex";
-  const zone = $("joyZone"), knob = $("joyKnob");
-  zone.addEventListener("touchstart", e => { const t = e.changedTouches[0]; joy = { active: true, id: t.identifier, dx: 0, dy: 0 }; e.preventDefault(); }, { passive: false });
-  zone.addEventListener("touchmove", e => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === joy.id) {
-        const r = zone.getBoundingClientRect();
-        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        let dx = (t.clientX - cx) / (r.width / 2), dy = (t.clientY - cy) / (r.height / 2);
-        const len = Math.hypot(dx, dy);
-        if (len > 1) { dx /= len; dy /= len; }
-        joy.dx = dx; joy.dy = dy;
-        knob.style.transform = `translate(${dx * 30}px, ${dy * 30}px)`;
-      }
-    }
+  const zone = $("joyZone"), base = $("joyBase"), knob = $("joyKnob");
+  const R = () => base.offsetWidth / 2;
+  zone.addEventListener("pointerdown", e => {
+    if (joy.active) return;            // one stick at a time
     e.preventDefault();
-  }, { passive: false });
-  const end = e => { for (const t of e.changedTouches) { if (t.identifier === joy.id) { joy.active = false; joy.dx = 0; joy.dy = 0; knob.style.transform = "translate(0,0)"; } } };
-  zone.addEventListener("touchend", end); zone.addEventListener("touchcancel", end);
-  const hold = (el, fn, release) => {
-    el.addEventListener("touchstart", e => { e.preventDefault(); fn(); }, { passive: false });
-    el.addEventListener("touchend", e => { e.preventDefault(); if (release) release(); }, { passive: false });
+    /* floating joystick: base snaps under the finger, clamped to the screen */
+    const r = R();
+    base.style.bottom = "auto";
+    base.style.left = clamp(e.clientX - r, 8, window.innerWidth - r * 2 - 8) + "px";
+    base.style.top = clamp(e.clientY - r, 8, window.innerHeight - r * 2 - 8) + "px";
+    joy = { active: true, id: e.pointerId, dx: 0, dy: 0 };
+    knob.style.transform = "translate(0,0)";
+    try { zone.setPointerCapture(e.pointerId); } catch (err) { /* no-op */ }
+  });
+  zone.addEventListener("pointermove", e => {
+    if (!joy.active || e.pointerId !== joy.id) return;
+    e.preventDefault();
+    const b = base.getBoundingClientRect();
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    let dx = (e.clientX - cx) / R(), dy = (e.clientY - cy) / R();
+    const len = Math.hypot(dx, dy);
+    if (len > 1) { dx /= len; dy /= len; }
+    joy.dx = dx; joy.dy = dy;
+    knob.style.transform = `translate(${dx * (R() - 24)}px, ${dy * (R() - 24)}px)`;
+  });
+  const end = e => {
+    if (!joy.active || e.pointerId !== joy.id) return;
+    resetJoy();
   };
-  hold($("tAttack"), () => { G.charging = true; weaponAttack(game); },
-    () => { if (G.charging) { G.charging = false; if (G.chargeT >= 0.6) tryHeavy(); G.chargeT = 0; } });
+  zone.addEventListener("pointerup", end);
+  zone.addEventListener("pointercancel", end);
+  /* pointer-based press/release with window fallback so sliding a finger off
+     a button still fires the release (and never leaks across fingers) */
+  const hold = (el, fn, release) => {
+    let id = null;
+    el.addEventListener("pointerdown", e => { e.preventDefault(); fn(); id = e.pointerId; }, { passive: false });
+    if (release) {
+      const r = e => { if (id !== null && e.pointerId === id) { id = null; release(); } };
+      window.addEventListener("pointerup", r);
+      window.addEventListener("pointercancel", r);
+    }
+  };
+  hold($("tAttack"), () => { G.charging = true; G.chargeT = 0; },
+    () => { if (G.charging) { G.charging = false; if (G.chargeT >= 0.6) tryHeavy(); else weaponAttack(game); G.chargeT = 0; } });
   hold($("tSecondary"), () => secondaryAttack(game));
   hold($("tBomb"), () => throwBomb(game));
   hold($("tDash"), () => tryDash());
