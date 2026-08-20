@@ -1,6 +1,6 @@
 {
   "name": "blob-knight",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "BLOB KNIGHT — ten-level action RPG in vanilla JS + Canvas. Sword + ranged secondary + tools.",
   "type": "module",

@@ -1001,7 +1001,7 @@ function die() {
   saveGame();
   showOverlay("☠️ YOU FELL", `You felled <b>${G.kills}</b> foes. The embers fade... but the story can be relived.<br>Earned <b style="color:#c084fc">${G.meta.essence} ember essence</b>.`, null, null, [
     { label: "🕯️ VISIT THE EMBER SHRINE", fn: openShrine },
-    { label: "🔄 TRY AGAIN", fn: resetGame, primary: true },
+    { label: "🔄 TRY AGAIN", fn: restartRun, primary: true },
     { label: "🏠 MAIN MENU", fn: resetGame },
   ]);
 }
@@ -1308,7 +1308,7 @@ function openPauseMenu() {
   showOverlay("⏸ PAUSED", "", null, null, [
     { label: "▶ RESUME", fn: resumePaused, primary: true },
     { label: "🔄 RESTART LEVEL", fn: () => { setupLevel(G.level); resumePaused(); } },
-    { label: "🔄 RESTART RUN", fn: () => { G.bossRush = false; G.daily = false; G.ngPlus = false; G.branchChosen = false; resetGame(); beginGame(); } },
+    { label: "🔄 RESTART RUN", fn: restartRun },
     { label: "⚙️ OPTIONS", fn: openOptions },
     { label: "⚙️ DIFFICULTY", fn: openDifficultyMenu },
     { label: "❓ HELP", fn: showHelp },
@@ -1490,6 +1490,12 @@ function resetRunStart() {
   G.stamina = STAMINA.max; G.shield = 0; G.shieldMax = 0;
   G.perks = []; G.artifact = null; G.wLevels = { sword: 1, wave: 1, crossbow: 1, staff: 1 };
 }
+/* idea: instant retry — skip the menu entirely so deaths never break the flow */
+function restartRun() {
+  G.bossRush = false; G.daily = false; G.ngPlus = false; G.branchChosen = false;
+  resetRunStart();
+  beginGame();
+}
 
 /* ---------- overlays ---------- */
 function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
@@ -1498,14 +1504,6 @@ function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
   o.innerHTML = `<h2>${title}</h2><p>${body}</p>`;
   o.classList.toggle("main-menu", !!addName);
   o.style.display = addName ? "grid" : "flex";
-  if (G.phase === "menu" && addName) {
-    const inp = document.createElement("input");
-    inp.type = "text"; inp.maxLength = 14; inp.placeholder = "NAME YOUR HERO...";
-    inp.autocomplete = "off"; inp.spellcheck = false;
-    inp.addEventListener("keydown", ev => { if (ev.key === "Enter") beginGame(); });
-    o.appendChild(inp);
-    inp.focus();
-  }
   const list = (buttons || []).slice();
   if (btnLabel && btnFn) list.push({ label: btnLabel, fn: btnFn, primary: true });
   for (const b of list) {
@@ -1524,8 +1522,7 @@ function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
 function hideOverlay() { $("overlay").innerHTML = ""; $("overlay").style.display = "none"; }
 
 function beginGame() {
-  const inp = document.querySelector("#overlay input");
-  if (inp) G.name = ((inp && inp.value.trim()) || "HERO").toUpperCase();   // preserve name from a tutorial transition
+  /* name entry removed — the hero keeps their name across runs (idea: no menu detour after death) */
   const th = $("tutHint"); if (th) th.classList.remove("show");
   /* idea 62: track runs */
   if (typeof STATS !== "undefined" && !G.fromContinue) { STATS.runs++; saveStats(); }

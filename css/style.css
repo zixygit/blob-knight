@@ -203,8 +203,9 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   background:rgba(36,28,58,.82);color:#e8e3f5;font-size:22px;cursor:pointer;
   touch-action:none;user-select:none;-webkit-user-select:none;
   display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
 }
-.tbtn:active{background:#3a2c5a;transform:scale(.94)}
+.tbtn:active{background:#3a2c5a;transform:scale(.92)}
 #tAttack{
   grid-column:1 / span 2;grid-row:4;width:100%;height:64px;border-radius:32px;font-size:28px;
   background:rgba(20,32,48,.9);border-color:#2f4a68;
@@ -218,43 +219,79 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 
 .merchant{color:#ffd166;font-style:italic;display:block;margin-top:6px;font-size:13px}
 
-/* ---------- small screens / phones ---------- */
+/* ---------- mobile: HUD becomes a static strip ABOVE the play field so text
+   never overlaps gameplay; touch buttons spread as a modern thumb cluster ---------- */
 @media (max-width:640px), (max-height:520px) {
-  #gameWrap{border-radius:8px}
-  #hudTop{padding:5px 8px;top:6px;left:6px;right:6px}
+  #gameWrap{
+    --hudH: 90px;
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    width:100vw;height:100dvh;max-width:none;max-height:none;
+    aspect-ratio:auto;border-radius:0;border:none;box-shadow:none;
+  }
+  #hud{
+    position:static;order:1;flex:0 0 auto;width:100%;height:var(--hudH);
+    display:flex;flex-direction:column;gap:3px;padding:4px 6px 0;overflow:hidden;
+  }
+  #hudTop{position:static;top:auto;left:auto;right:auto;padding:3px 8px}
   .hud-ident{font-size:11px}
   .hud-ident #hName{font-size:12px}
-  #hudBars{top:44px;left:6px;right:6px;gap:5px}
-  .hp-wrap{padding:3px 6px}
+  .hud-top-right{font-size:12px;gap:10px}
+  #hudBars{position:static;top:auto;left:auto;right:auto;gap:5px}
+  .hp-wrap{padding:2px 6px}
   .bar{height:6px}
-  #hudGear{left:6px;bottom:6px;gap:4px;max-width:56%}
+  #hudGear{position:static;left:auto;bottom:auto;gap:4px;max-width:100%;flex-wrap:nowrap}
   .gear-slot{padding:2px 6px;font-size:9.5px}
   #hudHint{display:none}
-  #objHint{top:76px}
-  #bossBar{top:82px;width:min(82%,420px)}
+  #objHint{display:none}
+  canvas{order:2;width:auto;height:auto;flex:0 0 auto;
+    max-width:100vw;max-height:calc(100dvh - var(--hudH));aspect-ratio:4/3}
+  #bossBar{top:calc(var(--hudH) + 6px);width:min(82%,420px);z-index:7}
   #overlay h2{font-size:22px}
   #overlay p{font-size:12px}
-  #joyZone{width:62%;height:80%}
+  #joyZone{width:62%;height:78%}
   #joyBase{left:10px;bottom:150px;width:120px;height:120px}
   #joyKnob{width:46px;height:46px}
-  .touchBtns{right:8px;bottom:10px;gap:7px;grid-template-columns:repeat(2,58px);grid-template-rows:repeat(4,50px)}
-  .tbtn{width:58px;height:50px;font-size:20px;border-radius:14px}
-  #tAttack{height:56px;font-size:26px;border-radius:28px}
+  .touchBtns{
+    right:10px;bottom:12px;gap:14px;
+    grid-template-columns:repeat(3,64px);grid-template-rows:repeat(4,52px);
+  }
+  .tbtn{
+    width:64px;height:52px;font-size:20px;border-radius:16px;
+    border-color:rgba(140,124,190,.45);background:rgba(36,28,58,.55);
+  }
+  #tAttack{
+    grid-column:1 / span 2;grid-row:4;width:100%;height:56px;border-radius:28px;
+    font-size:28px;background:rgba(20,32,48,.92);border-color:#2f4a68;
+  }
+  #tSecondary{grid-column:1;grid-row:3}
+  #tDash{grid-column:3;grid-row:3}
+  #tPotion{grid-column:3;grid-row:2}
+  #tBomb{grid-column:1;grid-row:2}
+  #tCycle{grid-column:1;grid-row:1;font-size:18px}
+  #tPause{grid-column:3;grid-row:1;font-size:18px}
   #candle{display:none}
   .toast{top:10px;font-size:12px;padding:8px 12px}
   #tutHint{bottom:170px;font-size:12px;pointer-events:none}
 }
-/* landscape phones: full-bleed arena, centered gear strip, thumb-friendly controls */
+/* landscape phones: full-bleed arena, slim HUD strip, thumb-friendly cluster */
 @media (max-height:520px) and (orientation:landscape) {
-  #gameWrap{max-width:min(100vw, calc((100dvh - 8px) * 4 / 3));width:100vw;border-radius:0;border:none;box-shadow:none}
-  #joyZone{width:56%;height:88%}
+  #gameWrap{--hudH:68px;width:100vw;border-radius:0;border:none;box-shadow:none}
+  #hud{gap:2px;padding:3px 4px 0}
+  #hudTop{padding:2px 6px}
+  .hud-ident{font-size:10px}
+  .hud-ident #hName{font-size:11px}
+  .hud-top-right{font-size:11px;gap:8px}
+  #hudBars{gap:4px}
+  .hp-wrap{padding:1px 6px}
+  #hudGear{gap:3px}
+  .gear-slot{padding:1px 5px;font-size:8.5px}
+  canvas{max-height:calc(100dvh - var(--hudH))}
+  #bossBar{top:calc(var(--hudH) + 4px);width:min(70%,420px)}
+  #joyZone{width:56%;height:84%}
   #joyBase{bottom:64px;left:10px;width:106px;height:106px}
   #joyKnob{width:40px;height:40px}
-  .touchBtns{right:10px;bottom:6px;gap:6px;grid-template-columns:repeat(2,54px);grid-template-rows:repeat(4,44px)}
-  .tbtn{width:54px;height:44px;font-size:18px;border-radius:12px}
-  #tAttack{height:48px;font-size:24px;border-radius:24px}
-  #hudGear{left:50%;transform:translateX(-50%);max-width:42%;justify-content:center;bottom:6px}
-  #objHint{top:78px}
-  #bossBar{top:84px}
-  #tutHint{bottom:auto;top:62px}
+  .touchBtns{right:10px;bottom:8px;gap:12px;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(4,46px)}
+  .tbtn{width:58px;height:46px;font-size:18px;border-radius:14px}
+  #tAttack{grid-column:1 / span 2;grid-row:4;width:100%;height:48px;border-radius:24px;font-size:24px}
+  #tutHint{bottom:auto;top:80px}
 }

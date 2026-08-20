@@ -169,4 +169,61 @@ test.describe("BLOB KNIGHT smoke", () => {
     expect(tf).toContain("scale(" + zoomAfter + ")");
     await page.evaluate(() => { SETTINGS.zoom = 1; saveSettings(); });
   });
+
+  test("death → TRY AGAIN restarts instantly — no name screen, no menu detour", async ({ page }) => {
+    await page.goto("http://localhost:8123/index.html");
+    /* menu shows no name input anymore */
+    await expect(page.locator("#overlay input")).toHaveCount(0);
+
+    await page.evaluate(() => { STATS.runs = 1; beginGame(); });
+    await expect(page.locator("#overlay")).toBeHidden();
+
+    /* die on purpose */
+    await page.evaluate(() => { damagePlayer(99999, game.player.x - 10, game.player.y); });
+    await expect(page.getByRole("heading", { name: "YOU FELL" })).toBeVisible();
+
+    /* TRY AGAIN drops straight back into a fresh run */
+    await page.locator(".btn", { hasText: "TRY AGAIN" }).first().click();
+    await expect(page.locator("#overlay")).toBeHidden();
+    await expect(page.locator("#overlay input")).toHaveCount(0);
+    const state = await page.evaluate(() => ({ phase: G.phase, level: G.level, hp: G.hp }));
+    expect(state.phase).toBe("play");
+    expect(state.level).toBe(1);
+    expect(state.hp).toBeGreaterThan(0);
+  });
+
+  test("mobile: HUD strip sits above the canvas; touch buttons spread with no overlap", async ({ page }) => {
+    /* phone viewport + touch emulation so the joystick/button cluster is live */
+    await page.setViewportSize({ width: 390, height: 700 });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    await page.goto("http://localhost:8123/index.html");
+    await page.waitForTimeout(200);
+
+    const layout = await page.evaluate(() => {
+      const hud = document.getElementById("hud").getBoundingClientRect();
+      const cv = document.getElementById("game").getBoundingClientRect();
+      const btns = [...document.querySelectorAll(".tbtn")].map(b => {
+        const r = b.getBoundingClientRect();
+        return { id: b.id, x: r.x, y: r.y, w: r.width, h: r.height };
+      });
+      return { hudBottom: Math.round(hud.bottom), cvTop: Math.round(cv.top), hudTop: Math.round(hud.top), btns };
+    });
+
+    /* HUD text never overlaps the play field */
+    expect(layout.hudBottom).toBeLessThanOrEqual(layout.cvTop + 1);
+    /* the cluster is live on touch devices */
+    expect(layout.btns.length).toBe(7);
+    /* attack is the big anchor button */
+    const atk = layout.btns.find(b => b.id === "tAttack");
+    expect(atk.w).toBeGreaterThan(100);
+    /* buttons are spread — none overlap another */
+    for (const a of layout.btns) {
+      for (const b of layout.btns) {
+        if (a === b) continue;
+        const clear = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        expect(clear).toBe(true);
+      }
+    }
+  });
 });
