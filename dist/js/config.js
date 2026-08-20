@@ -7,7 +7,7 @@ const CFG = {
   W: 800,
   H: 600,
   MARGIN: 30,
-  TITLE: "BLOB KNIGHT", VERSION: "1.5.0",   // idea 100: version tag
+  TITLE: "BLOB KNIGHT", VERSION: "0.03",   // idea 100: version tag
   PLAYER: { r: 14, speed: 170, maxHp: 100, atk: 10, def: 4, potions: 2, potionHeal: 40 },
   SWORD_RANGE: 42,
   SWORD_ARC: 1.1,
@@ -64,6 +64,7 @@ const LEVELS = {
       hp: 70, r: 21, speed: 85, color: "#c2553d", dmg: [6, 10],
       volley: { count: 3, spread: 0.45, speed: 280, dmg: [5, 8], color: "#e8a83d" },
       radial: null,
+      summon: { type: "swarm", name: "GOBLIN SWARM", count: 2, cd: 10 },   // mech: swarm lord
       volleyCd: 2.6, radialCd: 0, enrageAt: 0.5,
     },
     bossReward: 60,
@@ -84,6 +85,7 @@ const LEVELS = {
       hp: 135, r: 23, speed: 75, color: "#c8c0d8", dmg: [8, 13],
       volley: { count: 3, spread: 0.5, speed: 320, dmg: [7, 10], color: "#b8c4d8" },
       radial: { count: 10, speed: 230, dmg: [6, 9], color: "#9a90b8" },
+      mech: "shield", mechCd: 7, mechDur: 2.5,                     // mech: guards in windows
       volleyCd: 2.3, radialCd: 3.6, enrageAt: 0.5,
     },
     bossReward: 110,
@@ -101,7 +103,7 @@ const LEVELS = {
     boss: {
       name: "EMBERFANG, THE DRAGON", kind: "boss", isBoss: true,
       hp: 320, r: 34, speed: 100, color: "#ff5a2a", dmg: [12, 18],
-      volley: { count: 4, spread: 0.5, speed: 360, dmg: [10, 14], color: "#ff8b3d" },
+      volley: { count: 4, spread: 0.5, speed: 360, dmg: [10, 14], color: "#ff8b3d", burn: true },   // mech: volley ignites the ground
       radial: { count: 14, speed: 260, dmg: [8, 12], color: "#ffb45e" },
       volleyCd: 2.0, radialCd: 3.0, enrageAt: 0.5,
     },
@@ -124,6 +126,7 @@ const LEVELS = {
       volley: { count: 5, spread: 0.4, speed: 300, dmg: [7, 10], color: "#a8e6f0", slow: 2.2 },
       radial: { count: 12, speed: 220, dmg: [7, 10], color: "#7fd4e8" },
       summon: { type: "imp", name: "ICE SPARK", count: 2, cd: 7 },
+      mech: "blink", mechCd: 6,                                     // mech: teleports beside you
       volleyCd: 2.4, radialCd: 3.8, enrageAt: 0.5, enrage2At: 0.22,
     },
     bossReward: 180,
@@ -144,7 +147,7 @@ const LEVELS = {
       hp: 330, r: 28, speed: 78, color: "#9a86c8", dmg: [10, 15],
       volley: { count: 4, spread: 0.45, speed: 330, dmg: [8, 12], color: "#b8a8e8" },
       radial: { count: 14, speed: 240, dmg: [7, 11], color: "#8a76b8" },
-      summon: { type: "phantom", name: "COURT WRAITH", count: 1, cd: 9 },
+      summon: { type: "phantom", name: "COURT WRAITH", count: 2, cd: 7 },  // mech: spirit court
       spiral: { count: 3, step: 0.22, twist: 0.75, speed: 190, dmg: [6, 9], color: "#c0a8f0" },
       laser: { speed: 420, dmg: [10, 14], color: "#c0a8f0", sweep: 2.4, cd: 6 },        // idea 34
       volleyCd: 2.2, radialCd: 3.6, enrageAt: 0.55, enrage2At: 0.25,
@@ -173,6 +176,7 @@ const LEVELS = {
       laser: { speed: 460, dmg: [12, 16], color: "#a88cff", sweep: 2.8, cd: 7 },        // idea 34
       aoe: { radius: 90, count: 3, dmg: [9, 13], delay: 1.1, color: "#c0a8f0", cd: 8 },  // idea 34
       despair: { count: 26, speed: 300, dmg: [10, 14], color: "#ff2a6a" },              // idea 35: desperation
+      mech: "pull",                                                               // mech: gravity well at berserk
       volleyCd: 2.1, radialCd: 3.2, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.05,
     },
     bossReward: 400,
@@ -195,6 +199,7 @@ const LEVELS = {
       summon: { type: "imp", name: "ASH MOTE", count: 2, cd: 8 },
       spiral: { count: 3, step: 0.22, twist: 0.6, speed: 210, dmg: [7, 10], color: "#ffb45e" },
       laser: { speed: 440, dmg: [11, 15], color: "#ff8b3d", sweep: 2.5, cd: 6.5 },
+      mech: "tremor", mechCd: 6, mechCount: 3, mechR: 230,               // mech: ground-shaking rings
       volleyCd: 2.2, radialCd: 3.4, enrageAt: 0.55, enrage2At: 0.25,
     },
     bossReward: 320,
@@ -218,6 +223,7 @@ const LEVELS = {
       radial: { count: 16, speed: 240, dmg: [8, 12], color: "#7fd4e8" },
       summon: { type: "phantom", name: "ARCHIVE WRAITH", count: 2, cd: 8 },
       aoe: { radius: 80, count: 3, dmg: [9, 13], delay: 1.0, color: "#7fd4e8", cd: 8 },
+      mech: "tide", mechCd: 7, mechCount: 4, mechR: 250,                 // mech: chilling tide surge
       volleyCd: 2.1, radialCd: 3.3, enrageAt: 0.55, enrage2At: 0.26,
     },
     bossReward: 360,
@@ -242,6 +248,7 @@ const LEVELS = {
       spiral: { count: 4, step: 0.2, twist: 0.6, speed: 230, dmg: [8, 12], color: "#ff8b3d" },
       laser: { speed: 470, dmg: [13, 17], color: "#ff5a2a", sweep: 2.8, cd: 6 },
       despair: { count: 28, speed: 310, dmg: [11, 15], color: "#ff2a6a" },
+      mech: "charge", mechCd: 5, mechSpeed: 620,                        // mech: telegraphed dash
       volleyCd: 1.9, radialCd: 3.0, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.08,
     },
     bossReward: 450,
@@ -268,6 +275,7 @@ const LEVELS = {
       laser: { speed: 500, dmg: [14, 18], color: "#c2553d", sweep: 3.0, cd: 6 },
       aoe: { radius: 100, count: 4, dmg: [11, 15], delay: 1.0, color: "#c2553d", cd: 7 },
       despair: { count: 32, speed: 320, dmg: [12, 16], color: "#ff2a6a" },
+      mech: ["pull", "tremor"], mechCd: 6, mechCount: 3, mechR: 240,   // mech: world-ending combo
       volleyCd: 1.8, radialCd: 2.8, enrageAt: 0.6, enrage2At: 0.3, despairAt: 0.1,
     },
     bossReward: 550,
@@ -295,6 +303,7 @@ const LEVELS = {
       laser: { speed: 500, dmg: [14, 18], color: "#4ae8c8", sweep: 3.0, cd: 6 },
       aoe: { radius: 100, count: 4, dmg: [11, 15], delay: 1.0, color: "#6fffc9", cd: 7 },
       despair: { count: 32, speed: 320, dmg: [12, 16], color: "#ff2a6a" },
+      mech: "blink", mechCd: 5,                                       // mech: echoes dart across the dark
       volleyCd: 1.9, radialCd: 2.9, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.05,
     },
     bossReward: 600,
@@ -382,11 +391,14 @@ const STAMINA = { max: 100, dashCost: 40, regen: 30 };  // idea 14: stamina reso
 
 /* ---------- player settings (ideas 66/67/68/71/72) ---------- */
 const SETTINGS_KEY = "emberquest.settings";
+/* idea 20: screen-size (zoom) presets — FIT, COZY, ZOOMED */
+const SCREEN_SIZES = { "0.9": { label: "COZY" }, "1": { label: "FIT" }, "1.1": { label: "ZOOMED" } };
 const DEFAULT_SETTINGS = {
   vol: 0.8,            // master volume 0..1 (idea 66)
   shake: 1,            // screen shake intensity 0..1 (idea 67)
   colorblind: "off",   // off | deuteranopia | protanopia (idea 71)
   holdAttack: false,   // hold SPACE to keep attacking (idea 72)
+  zoom: 1,             // screen size multiplier (idea 20)
   keymap: {            // idea 68: key rebinding
     up: "w", down: "s", left: "a", right: "d",
     attack: " ", secondary: "r", dash: "shift", potion: "e", bomb: "f",

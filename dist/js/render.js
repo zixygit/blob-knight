@@ -230,11 +230,14 @@ function drawDoor(game) {
 function drawWaves(game) {
   for (const w of game.waves) {
     const a = Math.max(0, w.ttl / 0.5);
+    const col = w.color || "#6fc3ff";
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.fillStyle = "rgba(111,195,255,0.15)";
+    ctx.fillStyle = col;
+    ctx.globalAlpha = a * 0.15;
     ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, 7); ctx.fill();
-    ctx.strokeStyle = "#6fc3ff";
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = col;
     ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, 7); ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,0.6)";
@@ -335,6 +338,17 @@ function drawEnemies(game) {
 
     // boss crown + enrage aura
     if (e.isBoss) {
+      /* idea 18: BONE WARDEN guard window — dome that blocks hits */
+      if (e.shieldT > 0) {
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#c8c8e8";
+        ctx.beginPath(); ctx.arc(0, 0, e.r + 9, 0, 7); ctx.fill();
+        ctx.globalAlpha = 0.55 + 0.3 * Math.sin(game.time * 16);
+        ctx.strokeStyle = "#e8e8f8";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, e.r + 9, 0, 7); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.fillStyle = "#ffd166";
       ctx.fillRect(-9, -e.r - 14, 18, 6);
       ctx.fillRect(-12, -e.r - 8, 24, 3);
@@ -412,6 +426,7 @@ function drawPlayer(game) {
   }
 
   if (G.godMode) { ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 18; }
+  if (G.invulnT > 0 && Math.floor(game.time * 18) % 2 === 0) ctx.globalAlpha = 0.45;   // idea 4: grace-window blink
   if (p.hurtT > 0 && Math.floor(game.time * 20) % 2 === 0) ctx.globalAlpha = 0.4;
   ctx.fillStyle = "#6fc3ff";
   ctx.beginPath(); ctx.arc(0, 0, p.r, 0, 7); ctx.fill();
@@ -548,6 +563,13 @@ function drawEffects(game) {
       ctx.beginPath();
       ctx.moveTo(f.x1, f.y1); ctx.lineTo(f.x2, f.y2);
       ctx.stroke();
+      ctx.restore();
+    } else if (f.type === "ring") {         // idea 18: closing telegraph ring
+      ctx.save();
+      ctx.globalAlpha = a * 0.8;
+      ctx.strokeStyle = f.color || "#fff";
+      ctx.lineWidth = 2 + a * 3;
+      ctx.beginPath(); ctx.arc(f.x, f.y, Math.max(4, (f.r || 40) * (1 - a)), 0, 7); ctx.stroke();
       ctx.restore();
     }
   }

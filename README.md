@@ -2,7 +2,7 @@
 
 Ten depths. One sword. One very determined blob.
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-0.03-blue)
 
 A vanilla-JS canvas action RPG — no engines, no frameworks. You are the last of the Blob Knights: swing the sword with one hand, blast ranged weapons with the other, and throw everything else you own at the dark.
 
@@ -43,9 +43,10 @@ Touch (mobile): on-screen joystick + button cluster (sword, ranged, bomb, dash, 
 
 - **Two-hand combat** — sword + ranged weapon fire on separate keys
 - **Tools**: bombs, turrets, bear traps with a visible tool belt in the HUD
-- **12 enemy types** + elite modifiers + 10 bosses with pattern libraries, enrage and desperation phases
-- **Progression**: XP + level-up cards, perks, weapon levels, classes (Knight/Ranger/Mage), artifacts, meta shrine
-- **Meta**: save/continue, daily challenge, New Game+, difficulty (incl. EXTREME — start with 2 HP), stats, bestiary, achievements, journal
+- **12 enemy types** + elite modifiers + 10 bosses with pattern libraries, signature mechanics (guards, blinks, tremors, charge, tide, gravity wells), enrage and desperation phases
+- **Progression**: XP + silent auto level-ups, combo ramp, perks, weapon levels, classes (Knight/Ranger/Mage), artifacts, meta shrine
+- **Meta**: save/continue, daily challenge, New Game+, difficulty (CASUAL → GOD RUN — 2 HP forever), stats, bestiary, achievements, journal
+- **Feel**: post-hit invincibility, hit-stop, screen shake, damage popups, closing-ring attack telegraphs, objective chip, screen-size zoom setting
 - **Mobile-ready**: touch controls, responsive layout, no-zoom viewport, auto-pause
 - **Tech**: procedural synth music/SFX, parallax, minimap, gamepad, Vite, Tauri
 

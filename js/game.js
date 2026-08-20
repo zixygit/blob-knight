@@ -18,6 +18,7 @@ const G = {
   godMode: false,
   mute: false,
   slowT: 0,
+  invulnT: 0,             // idea 4: post-hit invincibility window
   hitStop: 0,             // idea 1: freeze frames on hit
   combo: 0, comboT: 0,    // idea 10: kill streak combo
   xp: 0, playerLevel: 1,  // idea 11: XP + level-ups
@@ -64,6 +65,7 @@ const game = {
 /* ---------- input ---------- */
 const keys = {};
 const KM = () => SETTINGS.keymap;
+let lastGp = null, gpPollT = 0;                 // perf: throttled gamepad polling
 addEventListener("keydown", e => {
   if (e.target && e.target.tagName === "INPUT") return;   // typing a hero name
   const k = e.key.toLowerCase();
@@ -84,12 +86,11 @@ addEventListener("keydown", e => {
   if (k === km.bomb && !e.repeat) throwBomb(game);
   if (k === km.turret && !e.repeat) deployTurretKey();
   if (k === km.trap && !e.repeat) deployTrapKey();
-  /* ENTER skips any interstitial screen (shop / branch / level-up / level-clear) or starts from the menu */
+  /* ENTER skips any interstitial screen (shop / branch / level-clear) or starts from the menu */
   if (k === "enter" && !e.repeat) {
     if (G.phase === "shop") nextLevel();
     else if (G.phase === "branch") { G.branchBonus = "combat"; nextLevel(); }
     else if (G.phase === "clear") nextLevel();
-    else if (G.phase === "levelup") { const b = document.querySelector("#overlay .btn:not([disabled])"); if (b) b.click(); }
     else if (G.phase === "menu") beginGame();
   }
 });
@@ -236,7 +237,10 @@ function playerDamage() {
   const w = game.lastWeapon || game.weapon || "sword";
   const wl = G.wLevels[w] || 1;                          // idea 13: per-weapon scaling
   const base = Math.round(G.atk * (1 + (wl - 1) * 0.5));
-  return { d: rand(base, base + 5) * (crit ? 2 : 1), crit };
+  /* idea 7: combo timing — chained hits ramp damage up to x12 */
+  const comb = Math.min(G.combo || 0, 12);
+  const dmg = Math.round(rand(base, base + 5) * (crit ? 2 : 1) * (1 + comb * 0.04));
+  return { d: dmg, crit };
 }
 
 /* idea 15: charged heavy attack */
@@ -275,31 +279,37 @@ function tryHeavy() {
   G.chargeT = 0;
 }
 
-/* idea 11: level-up — pick 1 of 3 stat cards */
+/* idea 11: level-up — auto-apply a random blessing, no popup (keeps the flow going) */
 function checkLevelUp() {
   const need = XP_NEED[G.playerLevel - 1];
   if (!need || G.xp < need) return;
   G.xp -= need;
   G.playerLevel++;
-  G.phase = "levelup";
   const cards = [
-    { label: "💪 +5 ATK", fn: () => { G.atk += 5; flash("ATK +5"); } },
-    { label: "❤️ +25 MAX HP", fn: () => { G.maxHp += 25; G.hp += 25; flash("Max HP +25"); } },
-    { label: "🍀 +5% CRIT", fn: () => { G.crit += 0.05; flash("Crit +5%"); } },
-    { label: "⚡ +30 STAMINA", fn: () => { STAMINA.max += 30; flash("Stamina +30"); } },
-    { label: "🛡️ +3 DEF", fn: () => { G.def += 3; flash("DEF +3"); } },
-    { label: "💨 -25% DASH COOLDOWN", fn: () => { CFG.DASH_CD *= 0.75; flash("Dash faster!"); } },
+    { label: "💪 +5 ATK", fn: () => { G.atk += 5; } },
+    { label: "❤️ +25 MAX HP", fn: () => { G.maxHp += 25; G.hp += 25; } },
+    { label: "🍀 +5% CRIT", fn: () => { G.crit += 0.05; } },
+    { label: "⚡ +30 STAMINA", fn: () => { STAMINA.max += 30; } },
+    { label: "🛡️ +3 DEF", fn: () => { G.def += 3; } },
+    { label: "💨 -25% DASH COOLDOWN", fn: () => { CFG.DASH_CD *= 0.75; } },
   ];
-  // shuffle and take 3
-  for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
-  const chosen = cards.slice(0, 3).map(c => ({ label: c.label, fn: () => { c.fn(); renderHUD(); hideOverlay(); G.phase = "play"; } }));
-  showOverlay(`⬆ LEVEL ${G.playerLevel}`, "Pick a blessing — ENTER takes the first.", null, null, chosen);
+  const c = cards[Math.floor(Math.random() * cards.length)];
+  c.fn();
+  flash(`⬆ LEVEL ${G.playerLevel}: ${c.label}`, "#ffd166");
   SFX.levelup();
+  renderHUD();
 }
 
 /* single place where enemies take damage: flash, knockback, kill */
 function hurtEnemy(e, dmg, kx, ky, opts = {}) {
   if (e.dead) return;
+  /* idea 18: boss shield windows block all frontal damage */
+  if (e.shieldT > 0 && !opts.ignoreShield) {
+    e.hurtT = 0.08;
+    game.effects.push({ type: "hit", x: e.x, y: e.y - 12, t: 0.3, txt: "BLOCKED", color: "#c8c8e8" });
+    SFX.shield();
+    return;
+  }
   /* idea 23: shielder blocks frontal damage */
   if (e.kind === "shielder" && !opts.ignoreShield && e.isShielded(game.player)) {
     e.hurtT = 0.08;
@@ -332,6 +342,8 @@ function hurtEnemy(e, dmg, kx, ky, opts = {}) {
 
 function damagePlayer(d, sx, sy, fx) {
   if (G.godMode || G.phase !== "play") return;
+  /* idea 4: post-hit invincibility — brief grace window so clusters don't stunlock */
+  if (G.invulnT > 0) return;
   if (game.player.dashT > 0) return;                       // dash i-frames
   /* idea 49: sword parry — negate the hit */
   if (game.parryT > 0) {
@@ -355,6 +367,7 @@ function damagePlayer(d, sx, sy, fx) {
   G.shieldRegenT = 4;   // pause shield regen after being hit
   G.hp -= mitigated;
   G.dmgTaken += mitigated;   // idea 38: boss grade tracking
+  G.invulnT = 0.6;           // idea 4: grace window after a real hit
   game.player.hurtT = 0.25;
   game.shake = Math.max(game.shake, 0.18);
   game.effects.push({ type: "hurt", x: game.player.x, y: game.player.y, t: 0.3 });
@@ -420,10 +433,10 @@ function killEnemy(e, silent) {
   const idx = game.enemies.indexOf(e);
   if (idx >= 0) game.enemies.splice(idx, 1);
   G.kills++;
-  /* idea 10: combo counter — kills within 3s chain */
-  if (G.comboT > 0) G.combo++;
+  /* idea 7: combo timing — kills & sword hits chain within the window */
+  if (G.comboT > 0) G.combo = Math.min(12, G.combo + 1);
   else G.combo = 1;
-  G.comboT = 3;
+  G.comboT = 1.6;
   /* idea 11: XP */
   if (!e.summoned || e.isBoss) {
     const xpGain = Math.round((e.maxHp || 20) / 6) + (e.isBoss ? 25 : 0);
@@ -549,11 +562,24 @@ function bossVolley(boss, cfg) {
       Math.cos(ang) * cfg.speed, Math.sin(ang) * cfg.speed,
       cfg.r || 7, rand(cfg.dmg[0], cfg.dmg[1]), cfg.color || "#ff8b3d", { slow: cfg.slow || 0 }));
   }
+  /* idea 18: EMBERFANG — a volley that scorches the ground where it lands */
+  if (cfg.burn) {
+    game.burnZones = game.burnZones || [];
+    for (let i = 0; i < 2; i++) {
+      game.burnZones.push({
+        x: clamp(p.x + rand(-90, 90), CFG.MARGIN, CFG.W - CFG.MARGIN),
+        y: clamp(p.y + rand(-90, 90), CFG.MARGIN, CFG.H - CFG.MARGIN),
+        t: 2.2, r: 46,
+      });
+      game.effects.push({ type: "ring", x: game.burnZones[game.burnZones.length - 1].x, y: game.burnZones[game.burnZones.length - 1].y, r: 46, t: 0.5, color: "#ff8b3d" });
+    }
+  }
   flash(`${boss.name} fires a volley!`, "#ff7847");
 }
 
 function bossRadial(boss, cfg) {
   const n = cfg.count;
+  game.effects.push({ type: "ring", x: boss.x, y: boss.y, r: 26, t: 0.3, color: cfg.color || "#9a90b8" });   // idea 18: telegraph
   for (let i = 0; i < n; i++) {
     const ang = (i / n) * Math.PI * 2;
     game.projectiles.push(new Projectile("enemy", boss.x, boss.y,
@@ -634,6 +660,7 @@ function update(dt) {
   G.hitStop = Math.max(0, G.hitStop - dt);                    // idea 1
   G.comboT = Math.max(0, G.comboT - dt);                       // idea 10
   if (G.comboT <= 0) G.combo = 0;
+  G.invulnT = Math.max(0, (G.invulnT || 0) - dt);              // idea 4: grace window tick
   for (const a of game.arcs || []) a.t -= dt;                  // idea 7: slash afterimages
   game.arcs = (game.arcs || []).filter(a => a.t > 0);
   if (game.player) {
@@ -686,8 +713,13 @@ function update(dt) {
   if (keys[km.down] || keys["arrowdown"]) dy += 1;
   if (keys[km.left] || keys["arrowleft"]) dx -= 1;
   if (keys[km.right] || keys["arrowright"]) dx += 1;
-  /* idea 69: gamepad axes */
-  const gp = navigator.getGamepads ? navigator.getGamepads().find(g => g && g.connected) : null;
+  /* idea 69: gamepad axes — throttled poll, getGamepads() allocates each call */
+  gpPollT -= dt;
+  if (gpPollT <= 0 || !lastGp) {
+    gpPollT = 0.2;
+    lastGp = navigator.getGamepads ? navigator.getGamepads().find(g => g && g.connected) || null : null;
+  }
+  const gp = lastGp;
   if (gp) {
     const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
     if (Math.abs(ax) > 0.2) dx = Math.round(ax * 2) / 2;
@@ -888,9 +920,10 @@ function update(dt) {
   }
 
   /* door — level clear. Level 2 offers a path choice; every level offers an OPTIONAL shop.
-     No screen-blocking reward popup: the player opts in or presses on. */
+     No screen-blocking reward popup: the player opts in or presses on.
+     idea 19: phase guard — dying on the same frame must never trigger the clear screen. */
   const d = game.G.door;
-  if (d && d.open && G.level !== 0 && dist(p, d) < 34) {
+  if (G.phase === "play" && d && d.open && G.level !== 0 && dist(p, d) < 34) {
     if (G.level === 2 && !G.branchChosen) {
       G.branchChosen = true;
       d.open = false;
@@ -926,9 +959,26 @@ function update(dt) {
 
   syncDashHud();
   updateBossBar();
+  updateObjHint();
+}
+
+/* idea 15: live objective chip — foes left / boss name, cached to avoid DOM churn */
+let objCache = "";
+function updateObjHint() {
+  const el = $("objHint");
+  if (!el) return;
+  let txt = "";
+  if (G.phase === "play" && G.level > 0) {
+    const boss = game.enemies.find(e => e.isBoss && !e.dead);
+    if (boss) txt = `👑 ${boss.name}`;
+    else if (game.G.bossSpawned) txt = "👑 BOSS INCOMING";
+    else if (game.G.minionsLeft > 0) txt = `☠ FOES LEFT: ${game.G.minionsLeft}`;
+  }
+  if (txt !== objCache) { objCache = txt; el.textContent = txt; el.classList.toggle("show", !!txt); }
 }
 
 /* idea 33: boss HP bar pinned to top of HUD */
+let bossBarNameCache = "";                                    // perf: skip redundant DOM writes
 function updateBossBar() {
   const bar = $("bossBar");
   if (!bar) return;
@@ -936,7 +986,7 @@ function updateBossBar() {
   const fill = $("bossBarFill");
   if (!boss) { bar.classList.remove("show"); return; }
   bar.classList.add("show");
-  $("bossBarName").textContent = boss.name;
+  if (boss.name !== bossBarNameCache) { bossBarNameCache = boss.name; $("bossBarName").textContent = boss.name; }
   fill.style.width = Math.max(0, boss.hp / boss.maxHp * 100) + "%";
 }
 
@@ -952,6 +1002,7 @@ function die() {
   showOverlay("☠️ YOU FELL", `You felled <b>${G.kills}</b> foes. The embers fade... but the story can be relived.<br>Earned <b style="color:#c084fc">${G.meta.essence} ember essence</b>.`, null, null, [
     { label: "🕯️ VISIT THE EMBER SHRINE", fn: openShrine },
     { label: "🔄 TRY AGAIN", fn: resetGame, primary: true },
+    { label: "🏠 MAIN MENU", fn: resetGame },
   ]);
 }
 
@@ -1094,10 +1145,16 @@ function winGame() {
        "Even dim embers can win the day. The realms hold on."];
   if (G.ngPlus) {
     showOverlay("🏆 BLOB KNIGHT COMPLETE — NEW GAME +",
-      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}<br><br>🜂 A <b>SECRET DOOR</b> creaks open beyond the throne…`, "🜂 ENTER THE VOID THRONE", startVoidThrone);
+      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}<br><br>🜂 A <b>SECRET DOOR</b> creaks open beyond the throne…`, null, null, [
+        { label: "🜂 ENTER THE VOID THRONE", fn: startVoidThrone, primary: true },
+        { label: "🏠 MAIN MENU", fn: resetGame },
+      ]);
   } else {
     showOverlay("🏆 BLOB KNIGHT COMPLETE",
-      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}`, "🏆 PLAY AGAIN", resetGame);
+      `Grade <b>${grade}</b> · ${G.kills} foes felled.<br>${tier[0]}<br>${tier[1]}`, null, null, [
+        { label: "🏆 PLAY AGAIN", fn: resetGame, primary: true },
+        { label: "🏠 MAIN MENU", fn: resetGame },
+      ]);
   }
 }
 
@@ -1234,10 +1291,11 @@ function openOptions() {
     { label: "ℹ️ CREDITS", fn: showCredits },                                                   // idea 65
   ];
   if (G.doubleBossUnlocked) extras.unshift({ label: "⚔️ DOUBLE BOSS", fn: startDoubleBoss, note: "Twins challenge" });  // idea 37
+  const zoomOpt = () => `${SCREEN_SIZES[SETTINGS.zoom] ? SCREEN_SIZES[SETTINGS.zoom].label : SETTINGS.zoom}`;
   showOverlay("⚙️ SETTINGS", "Settings apply immediately.", null, null, [
     { label: `🔊 VOLUME: ${Math.round(SETTINGS.vol * 100)}%`, fn: () => { SETTINGS.vol = Math.round((SETTINGS.vol + 0.1) * 10) / 10; if (SETTINGS.vol > 1) SETTINGS.vol = 0; saveSettings(); SFX.pickup(); openOptions(); } },
     { label: `💥 SCREEN SHAKE: ${SETTINGS.shake ? "ON" : "OFF"}`, fn: () => { SETTINGS.shake = SETTINGS.shake ? 0 : 1; saveSettings(); openOptions(); } },
-    { label: `👁 COLORBLIND: ${SETTINGS.colorblind}`, fn: () => { const modes = ["off", "deuteranopia", "protanopia"]; SETTINGS.colorblind = modes[(modes.indexOf(SETTINGS.colorblind) + 1) % modes.length]; saveSettings(); openOptions(); } },
+    { label: `🔍 SCREEN SIZE: ${zoomOpt()}`, fn: () => { const ks = Object.keys(SCREEN_SIZES); const i = Math.max(0, ks.indexOf(String(SETTINGS.zoom))); SETTINGS.zoom = Number(ks[(i + 1) % ks.length]); saveSettings(); applyZoom(); openOptions(); } },
     { label: `⌨️ REBIND: ATTACK (${SETTINGS.keymap.attack.toUpperCase()})`, fn: () => { flash("Press a key to rebind ATTACK...", "#6fc3ff"); window._rebind = "attack"; hideOverlay(); } },
     { label: `⌨️ REBIND: RANGED (${SETTINGS.keymap.secondary.toUpperCase()})`, fn: () => { flash("Press a key to rebind RANGED...", "#6fc3ff"); window._rebind = "secondary"; hideOverlay(); } },
     { label: `⌨️ REBIND: DASH (${SETTINGS.keymap.dash.toUpperCase()})`, fn: () => { flash("Press a key to rebind DASH...", "#6fc3ff"); window._rebind = "dash"; hideOverlay(); } },
@@ -1250,6 +1308,7 @@ function openPauseMenu() {
   showOverlay("⏸ PAUSED", "", null, null, [
     { label: "▶ RESUME", fn: resumePaused, primary: true },
     { label: "🔄 RESTART LEVEL", fn: () => { setupLevel(G.level); resumePaused(); } },
+    { label: "🔄 RESTART RUN", fn: () => { G.bossRush = false; G.daily = false; G.ngPlus = false; G.branchChosen = false; resetGame(); beginGame(); } },
     { label: "⚙️ OPTIONS", fn: openOptions },
     { label: "⚙️ DIFFICULTY", fn: openDifficultyMenu },
     { label: "❓ HELP", fn: showHelp },
@@ -1375,7 +1434,7 @@ function resetGame() {
   Object.assign(G, {
     phase: "menu", hp: 100, maxHp: 100, atk: 10, def: 4, gold: 0, potions: 2,
     sword: 1, armor: 1, kills: 0, crit: 0, godMode: false, slowT: 0, level: 1,
-    bombs: 0, turrets: 0, traps: 0,
+    bombs: 0, turrets: 0, traps: 0, invulnT: 0,
     door: null, loot: [], bossSpawned: false, minionsLeft: 0, hitStop: 0, combo: 0, comboT: 0,
     xp: 0, playerLevel: 1, stamina: STAMINA.max, shield: 0, shieldMax: 0, shieldRegenT: 0,
     lifesteal: 0, thorns: 0, revives: 0, knockMult: 1, goldMult: 1, asMult: 1,
@@ -1480,8 +1539,8 @@ function beginGame() {
   G.gold += meta.gold * 50;
   G.potions += meta.potion;
   G.crit += meta.crit * 0.05;
-  /* idea: extreme difficulty — start with only 2 HP */
-  if (G.difficulty === "extreme") { G.maxHp = 2; G.hp = 2; }
+  /* idea: extreme / god-run difficulties — start with only 2 HP */
+  if (G.difficulty === "extreme" || G.difficulty === "godrun") { G.maxHp = 2; G.hp = 2; }
   renderHUD();
   SFX.unlock();
   SFX.levelup();
@@ -1515,6 +1574,8 @@ function syncDashHud() {
 }
 
 function renderHUD() {
+  /* idea: GOD RUN — 2 HP forever; no blessing, shrine or herb may ever grow it */
+  if (G.difficulty === "godrun") { G.maxHp = 2; G.hp = Math.min(G.hp, 2); }
   $("hName").textContent = G.name;
   $("hHpText").textContent = Math.max(0, Math.round(G.hp)) + "/" + G.maxHp;
   $("hpFill").style.width = Math.max(0, G.hp / G.maxHp * 100) + "%";
@@ -1683,6 +1744,14 @@ function loop(now) {
   draw(game);
   requestAnimationFrame(loop);
 }
+
+/* ---------- screen size (zoom) + resize hygiene (idea 20) ---------- */
+function applyZoom() {
+  const w = $("gameWrap");
+  if (w) w.style.transform = `scale(${SETTINGS.zoom || 1})`;
+}
+addEventListener("resize", () => { resetJoy(); applyZoom(); });
+document.addEventListener("orientationchange", () => { resetJoy(); applyZoom(); });
 
 renderHUD();
 /* boot: menu shown once ALL scripts loaded — index.html runs boot() after meta.js */

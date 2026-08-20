@@ -58,6 +58,7 @@ const SFX = (() => {
     },
     hit:      () => tone(240, 0.07, "square",   0.035, 160),
     crit:     () => tone(520, 0.12, "square",   0.05,  180),
+    shield:   () => tone(340, 0.09, "square",   0.045, 210),   // idea 18: boss guard clank
     hurt:     () => tone(130, 0.18, "sawtooth", 0.05,  70),
     pickup:   () => tone(680, 0.08, "triangle", 0.045, 900),
     potion:   () => tone(520, 0.14, "triangle", 0.045, 780),

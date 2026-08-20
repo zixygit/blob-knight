@@ -43,6 +43,7 @@
       <span id="hCombo" class="combo-txt"></span>
     </div>
     <div id="hudHint"><span id="hintKeys"></span></div>
+    <div id="objHint"></div>
   </div>
 
   <div id="bossBar">
@@ -85,7 +86,7 @@
 <script src="js/steam.js"></script>
 <script>
   /* boot once every module is loaded (game.js can't call resetGame() before meta.js) */
-  function boot() { resetGame(); }
+  function boot() { applyZoom(); resetGame(); }
   boot();
 </script>
 </body>

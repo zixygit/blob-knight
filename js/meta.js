@@ -80,6 +80,7 @@ const DIFFICULTIES = {
   hard: { name: "HARD", mult: 1.4, desc: "Enemies deal 40% more damage" },
   nightmare: { name: "NIGHTMARE", mult: 1.8, desc: "Enemies deal 80% more, take 25% less" },
   extreme: { name: "EXTREME", mult: 2.2, desc: "Enemies deal 120% more — start with 2 HP" },
+  godrun: { name: "GOD RUN", mult: 2.8, desc: "180% more damage — 2 HP forever, potions only" },
 };
 function applyDifficultyMult(dmg) {
   return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult);

@@ -22,6 +22,10 @@ function attackSword(game) {
         game.hurtEnemy(e, hit.d,
           Math.cos(p.dir) * (heavy ? 13 : 8), Math.sin(p.dir) * (heavy ? 13 : 8),
           { knock: heavy ? 0.35 : 0.2, crit: hit.crit, color: heavy ? "#ffb45e" : undefined }); // idea 2: heavier knock vs brutes
+        /* idea 7: combo timing — every sword hit refreshes the chain */
+        if (G.comboT > 0) G.combo = Math.min(12, G.combo + 1);
+        else G.combo = 1;
+        G.comboT = 1.6;
       }
     }
   }

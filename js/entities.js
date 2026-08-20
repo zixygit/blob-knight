@@ -134,6 +134,7 @@ class Enemy {
 
   /* ranged: keep distance, fire projectiles (freezer shots chill) */
   behaveShooter(dt, game, p) {
+    this.dodgeIncoming(dt, game);
     const d = Math.max(1, dist(this, p));
     const want = 220;
     if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.6 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.6 * dt; }
@@ -147,6 +148,24 @@ class Enemy {
         proj.r, rand(proj.dmg[0], proj.dmg[1]), proj.color, { slow: proj.slow || 0 });
       game.projectiles.push(shot);
     }
+  }
+
+  /* idea 9: smarter casters — sidestep player bolts that come too close */
+  dodgeIncoming(dt, game) {
+    if (!game.projectiles || !game.projectiles.length) return;
+    let near = null, best = 1e9;
+    for (const pr of game.projectiles) {
+      if (pr.team !== "player") continue;
+      const dx = pr.x - this.x, dy = pr.y - this.y;
+      if (dx < -110 || dx > 110 || dy < -110 || dy > 110) continue;
+      const d = dx * dx + dy * dy;
+      if (d < best) { best = d; near = pr; }
+    }
+    if (!near) return;
+    const strafe = Math.atan2(near.vy, near.vx) + Math.PI / 2;
+    const dir = Math.cos(strafe - Math.atan2(near.y - this.y, near.x - this.x)) > 0 ? 1 : -1;
+    this.x += Math.cos(strafe) * dir * this.speed * 1.5 * dt;
+    this.y += Math.sin(strafe) * dir * this.speed * 1.5 * dt;
   }
 
   /* suicide rusher: explodes near the player */
@@ -214,6 +233,7 @@ class Enemy {
 
   /* summoner: keeps its distance and calls forth imps */
   behaveSummoner(dt, game, p) {
+    this.dodgeIncoming(dt, game);
     const d = Math.max(1, dist(this, p));
     const want = 260;
     if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.7 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.7 * dt; }
@@ -273,6 +293,7 @@ class Enemy {
 
   /* idea 24: healer — beams HP to other enemies */
   behaveHealer(dt, game, p) {
+    this.dodgeIncoming(dt, game);
     const d = Math.max(1, dist(this, p));
     const want = 240;
     if (d < want - 50) { this.x -= (p.x - this.x) / d * this.speed * 0.7 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.7 * dt; }
@@ -320,6 +341,7 @@ class Enemy {
 
   /* idea 26: sniper — laser sight then fast shot (idea 21 telegraph) */
   behaveSniper(dt, game, p) {
+    this.dodgeIncoming(dt, game);
     const d = Math.max(1, dist(this, p));
     const want = 300;
     if (d < want - 60) { this.x -= (p.x - this.x) / d * this.speed * 0.6 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.6 * dt; }
@@ -411,6 +433,7 @@ class Enemy {
     if (b.despair && !this.despairDone && this.hp < this.maxHp * (b.despairAt || 0.05)) {
       this.despairDone = true;
       game.flash(`${this.name} unleashes its DESPERATION!`, "#ff2a6a");
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 20, t: 0.5, color: "#ff2a6a" });   // idea 18: telegraph
       setTimeout(() => game.flash(`“${DESPERATION_TAUNTS[rand(0, DESPERATION_TAUNTS.length - 1)]}”`, "#c2553d"), 900);   // idea 87
       game.slowmoT = 1.2;
       game.shake = Math.max(game.shake, 0.5);
@@ -480,12 +503,140 @@ class Enemy {
         this.aoeT = b.aoe.cd * mult;
         game.flash(`${this.name} tears the ground!`, "#c0a8f0");
         for (let i = 0; i < b.aoe.count; i++) {
+          const zx = clamp(p.x + rand(-220, 220), CFG.MARGIN, CFG.W - CFG.MARGIN);
+          const zy = clamp(p.y + rand(-220, 220), CFG.MARGIN, CFG.H - CFG.MARGIN);
           game.G.aoeZones.push({
-            x: clamp(p.x + rand(-220, 220), CFG.MARGIN, CFG.W - CFG.MARGIN),
-            y: clamp(p.y + rand(-220, 220), CFG.MARGIN, CFG.H - CFG.MARGIN),
+            x: zx, y: zy,
             r: b.aoe.radius, t: b.aoe.delay, max: b.aoe.delay, dmg: b.aoe.dmg, color: b.aoe.color,
           });
+          game.effects.push({ type: "ring", x: zx, y: zy, r: b.aoe.radius, t: b.aoe.delay, color: b.aoe.color });   // idea 18: telegraph
         }
+      }
+    }
+    /* idea 18: per-boss signature mechanics — each depth's boss fights differently */
+    const mechs = Array.isArray(b.mech) ? b.mech : (b.mech ? [b.mech] : []);
+    for (const m of mechs) this.runMech(m, dt, game, b);
+  }
+
+  runMech(m, dt, game, b) {
+    const p = game.player;
+    switch (m) {
+      /* BONE WARDEN: raises a guard — frontal damage blocked while it lasts */
+      case "shield": {
+        this.shieldT = Math.max(0, (this.shieldT || 0) - dt);
+        if (this.shieldT <= 0) {
+          this.mechShieldT = (this.mechShieldT || 0) - dt;
+          if (this.mechShieldT <= 0) {
+            this.mechShieldT = b.mechCd || 7;
+            this.shieldT = b.mechDur || 2.5;
+            game.flash(`${this.name} raises its guard!`, "#c8c8e8");
+            game.SFX && game.SFX.shield();
+            game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 14, t: 0.4, color: "#c8c8e8" });
+          }
+        }
+        break;
+      }
+      /* KARVATH / ECHO: teleports beside the player */
+      case "blink": {
+        this.blinkT = (this.blinkT || 0) - dt;
+        if (this.blinkT <= 0) {
+          this.blinkT = b.mechCd || 6;
+          const ang = Math.random() * Math.PI * 2;
+          const dd = rand(100, 170);
+          game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+          this.x = clamp(p.x + Math.cos(ang) * dd, CFG.MARGIN, CFG.W - CFG.MARGIN);
+          this.y = clamp(p.y + Math.sin(ang) * dd, CFG.MARGIN, CFG.H - CFG.MARGIN);
+          game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+          game.flash(`${this.name} warps!`, "#c084fc");
+          game.SFX && game.SFX.teleport();
+        }
+        break;
+      }
+      /* VOID SOVEREIGN / THARAN: gravity well at berserk — drags the player in */
+      case "pull": {
+        if (!this.enraged2) break;
+        const dd = dist(this, p);
+        if (dd < 300 && dd > 24) {
+          const ang = Math.atan2(this.y - p.y, this.x - p.x);
+          p.x = clamp(p.x + Math.cos(ang) * 140 * dt, CFG.MARGIN, CFG.W - CFG.MARGIN);
+          p.y = clamp(p.y + Math.sin(ang) * 140 * dt, CFG.MARGIN, CFG.H - CFG.MARGIN);
+          game.effects.push({ type: "trail", x: p.x, y: p.y, t: 0.2, color: "#a88cff", r: 4 });
+        }
+        break;
+      }
+      /* KAELTHAR / THARAN: pounding ground rings — expanding tremors hurt on contact */
+      case "tremor": {
+        this.tremorT = (this.tremorT || 0) - dt;
+        if (this.tremorT <= 0) {
+          this.tremorT = b.mechCd || 6;
+          game.flash(`${this.name} pounds the ground!`, "#ffb45e");
+          game.shake = Math.max(game.shake, 0.25);
+          game.SFX && game.SFX.boom();
+          for (let i = 0; i < (b.mechCount || 3); i++) {
+            const ring = new Wave(this.x + rand(-40, 40), this.y + rand(-40, 40), "enemy");
+            ring.maxR = b.mechR || 220;
+            ring.color = "#ffb45e";
+            ring.ttl = 0.5;
+            game.waves.push(ring);
+            game.effects.push({ type: "ring", x: ring.x, y: ring.y, r: ring.maxR, t: 0.5, color: "#ffb45e" });
+          }
+        }
+        break;
+      }
+      /* VOLKRATH: telegraphed dash — flash windup, then a wall of impact */
+      case "charge": {
+        if (this.dashing) {
+          this.dashT -= dt;
+          this.x += this.dashX * dt;
+          this.y += this.dashY * dt;
+          if (dist(this, p) < this.r + p.r) {
+            game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+            this.dashing = false;
+          }
+          if (this.dashT <= 0) this.dashing = false;
+          break;
+        }
+        if (this.windup > 0) {
+          this.windup -= dt;
+          if (this.windup <= 0) {
+            this.dashing = true;
+            this.dashT = 0.6;
+            const ang = Math.atan2(p.y - this.y, p.x - this.x);
+            this.dashX = Math.cos(ang) * (b.mechSpeed || 580);
+            this.dashY = Math.sin(ang) * (b.mechSpeed || 580);
+          }
+          break;
+        }
+        this.chargeT -= dt;
+        if (this.chargeT <= 0 && dist(this, p) < 340) {
+          this.chargeT = b.mechCd || 5;
+          this.windup = 0.7;
+          game.flash(`${this.name} braces to charge!`, "#ff5a2a");
+          game.SFX && game.SFX.boss();
+        }
+        break;
+      }
+      /* LURIAN: chilling tide — slow nova + ice spikes around the player */
+      case "tide": {
+        this.tideT = (this.tideT || 0) - dt;
+        if (this.tideT <= 0) {
+          this.tideT = b.mechCd || 7;
+          const r = b.mechR || 240;
+          game.flash(`${this.name} calls the tide!`, "#7fd4e8");
+          game.effects.push({ type: "ring", x: this.x, y: this.y, r, t: 0.6, color: "#7fd4e8" });
+          if (dist(this, p) < r) {
+            G.slowT = Math.max(G.slowT, 2.2);
+            game.flash("CHILLED!", "#7fd4e8");
+          }
+          for (let i = 0; i < (b.mechCount || 4); i++) {
+            game.G.aoeZones.push({
+              x: clamp(p.x + rand(-200, 200), CFG.MARGIN, CFG.W - CFG.MARGIN),
+              y: clamp(p.y + rand(-200, 200), CFG.MARGIN, CFG.H - CFG.MARGIN),
+              r: 60, t: 1.0, max: 1.0, dmg: b.aoe ? b.aoe.dmg : [6, 9], color: "#7fd4e8",
+            });
+          }
+        }
+        break;
       }
     }
   }
@@ -595,20 +746,30 @@ class Projectile {
   }
 }
 
-/* ---------- wave blade shockwave ---------- */
+/* ---------- wave shockwave ----------
+   team "player" = wave blade (hits enemies); team "enemy" = boss tremors (hits the player) */
 class Wave {
-  constructor(x, y) {
+  constructor(x, y, team) {
     this.x = x; this.y = y;
     this.r = 20;
     this.maxR = 210;
     this.ttl = 0.5;
     this.hitSet = new Set();
     this.done = false;
+    this.team = team || "player";
+    this.color = this.team === "enemy" ? "#ffb45e" : "#6fc3ff";
   }
   update(dt, game) {
     const grow = (this.maxR - this.r) / 0.5;
     this.r += grow * dt;
     this.ttl -= dt;
+    if (this.team === "enemy") {
+      const p = game.player;
+      if (p && dist(this, p) < this.r + p.r) {
+        game.damagePlayer(rand(6, 10), this.x, this.y);
+      }
+      return this.ttl <= 0;
+    }
     for (const e of [...game.enemies]) {   // copy: kills splice the live array
       if (!this.hitSet.has(e) && dist(this, e) < this.r + e.r) {
         this.hitSet.add(e);

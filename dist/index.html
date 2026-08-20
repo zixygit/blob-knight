@@ -6,7 +6,7 @@
 <meta name="description" content="BLOB KNIGHT — a ten-level action RPG. Guide the last blob knight through ten depths and cast the Void Sovereign from his throne.">
 <title>BLOB KNIGHT — action RPG</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫧</text></svg>">
-  <link rel="stylesheet" crossorigin href="./assets/index-D_4RJwJS.css">
+  <link rel="stylesheet" crossorigin href="./assets/index-CMnqz426.css">
 </head>
 <body>
 
@@ -43,6 +43,7 @@
       <span id="hCombo" class="combo-txt"></span>
     </div>
     <div id="hudHint"><span id="hintKeys"></span></div>
+    <div id="objHint"></div>
   </div>
 
   <div id="bossBar">
@@ -85,7 +86,7 @@
 <script src="js/steam.js"></script>
 <script>
   /* boot once every module is loaded (game.js can't call resetGame() before meta.js) */
-  function boot() { resetGame(); }
+  function boot() { applyZoom(); resetGame(); }
   boot();
 </script>
 </body>
