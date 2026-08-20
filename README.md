@@ -2,7 +2,7 @@
 
 Six depths. One sword. One very determined blob.
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 
 A vanilla-JS canvas action RPG — no engines, no frameworks. You are the last of the Blob Knights: swing the sword with one hand, blast ranged weapons with the other, and throw everything else you own at the dark.
 
@@ -30,7 +30,7 @@ Or open `index.html` directly in a browser (no build step needed).
 | G | **Deploy turret** |
 | T | **Set bear trap** |
 | Q / 1-4 | Cycle / select the secondary (ranged) weapon |
-| ENTER | Skip the shop / branch screen after clearing a level |
+| ENTER | Skip the optional shop / path choice after clearing a level |
 | P / Esc | Pause |
 | M | Mute |
 

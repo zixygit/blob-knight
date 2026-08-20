@@ -84,10 +84,11 @@ addEventListener("keydown", e => {
   if (k === km.bomb && !e.repeat) throwBomb(game);
   if (k === km.turret && !e.repeat) deployTurretKey();
   if (k === km.trap && !e.repeat) deployTrapKey();
-  /* ENTER skips any interstitial screen (shop / branch / level-up) or starts from the menu */
+  /* ENTER skips any interstitial screen (shop / branch / level-up / level-clear) or starts from the menu */
   if (k === "enter" && !e.repeat) {
     if (G.phase === "shop") nextLevel();
     else if (G.phase === "branch") { G.branchBonus = "combat"; nextLevel(); }
+    else if (G.phase === "clear") nextLevel();
     else if (G.phase === "levelup") { const b = document.querySelector("#overlay .btn:not([disabled])"); if (b) b.click(); }
     else if (G.phase === "menu") beginGame();
   }
@@ -878,9 +879,27 @@ function update(dt) {
     if (dist(game.G.loot[i], p) < 26) { pickup(game.G.loot[i]); game.G.loot.splice(i, 1); }
   }
 
-  /* door — the tutorial (level 0) owns its own door flow */
+  /* door — level clear. Level 2 offers a path choice; every level offers an OPTIONAL shop.
+     No screen-blocking reward popup: the player opts in or presses on. */
   const d = game.G.door;
-  if (d && d.open && G.level !== 0 && dist(p, d) < 34) { d.open = false; openShop(); }
+  if (d && d.open && G.level !== 0 && dist(p, d) < 34) {
+    if (G.level === 2 && !G.branchChosen) {
+      G.branchChosen = true;
+      d.open = false;
+      G.phase = "branch";
+      showOverlay("🌳 THE PATH DIVIDES", "Two ways forward:", null, null, [
+        { label: "⚔️ COMBAT PATH — +LOOT, harder", fn: () => { G.branchBonus = "combat"; nextLevel(); } },
+        { label: "🛒 SHOP PATH — merchant ahead", fn: () => { G.branchBonus = "shop"; nextLevel(); openShop(); } },
+      ]);
+    } else {
+      G.phase = "clear";
+      showOverlay("⚑ LEVEL CLEAR", "The door is open.", null, null, [
+        { label: "🛒 VISIT SHOP", fn: () => { G.phase = "play"; openShop(); } },
+        { label: "➡️ NEXT LEVEL", fn: nextLevel, primary: true },
+      ]);
+    }
+    return;
+  }
 
   /* idea 47: shrine — pay HP for buff / gamble gold */
   const sh = game.shrine;
@@ -895,18 +914,6 @@ function update(dt) {
     }
     game.effects.push({ type: "boom", x: sh.x, y: sh.y, t: 0.5 });
     renderHUD();
-  }
-
-  /* idea 48: branching exits — after level 2 choose a path */
-  if (d && d.open && G.level === 2 && !G.branchChosen && dist(p, d) < 34) {
-    G.branchChosen = true;
-    d.open = false;
-    G.phase = "branch";
-    showOverlay("🌳 THE PATH DIVIDES", "Two ways forward:", null, null, [
-      { label: "⚔️ COMBAT PATH — +bonus loot, harder", fn: () => { G.branchBonus = "combat"; nextLevel(); } },
-      { label: "🛒 SHOP PATH — merchant ahead", fn: () => { G.branchBonus = "shop"; nextLevel(); openShop(); } },
-    ]);
-    return;
   }
 
   syncDashHud();
