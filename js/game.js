@@ -84,11 +84,17 @@ addEventListener("keydown", e => {
   if (k === km.bomb && !e.repeat) throwBomb(game);
   if (k === km.turret && !e.repeat) deployTurretKey();
   if (k === km.trap && !e.repeat) deployTrapKey();
-  /* ENTER skips any interstitial screen (shop / branch / level-up) */
+  /* ENTER skips any interstitial screen (shop / branch / level-up / lore crawl) */
   if (k === "enter" && !e.repeat) {
     if (G.phase === "shop") nextLevel();
     else if (G.phase === "branch") { G.branchBonus = "combat"; nextLevel(); }
     else if (G.phase === "levelup") { const b = document.querySelector("#overlay .btn:not([disabled])"); if (b) b.click(); }
+    else if (G.phase === "menu" && document.getElementById("crawl").classList.contains("show")) {
+      clearTimeout(window._crawlT);
+      document.getElementById("crawl").classList.remove("show");
+      hideOverlay();
+      runTutorial();
+    }
   }
 });
 addEventListener("keyup", e => {
@@ -113,7 +119,10 @@ function setupLevel(n) {
   game.projectiles = [];
   game.waves = [];
   game.effects = [];
-  game.arcs = [];
+game.arcs = [];
+  game.orbits = [];
+  game.deployables = [];
+  game.burnZones = [];
   game.G.loot = [];
   game.G.door = { x: CFG.W - 36, y: CFG.H / 2, r: 14, open: false };
 game.G.bossSpawned = false;
@@ -276,7 +285,7 @@ function checkLevelUp() {
   // shuffle and take 3
   for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
   const chosen = cards.slice(0, 3).map(c => ({ label: c.label, fn: () => { c.fn(); renderHUD(); hideOverlay(); G.phase = "play"; } }));
-  showOverlay(`⬆ LEVEL ${G.playerLevel}`, "Choose a blessing: (or press ENTER for the first)", null, null, chosen);
+  showOverlay(`⬆ LEVEL ${G.playerLevel}`, "Pick a blessing — ENTER takes the first.", null, null, chosen);
   SFX.levelup();
 }
 
@@ -608,6 +617,7 @@ function deployTrapKey() {
 /* ---------- update loop ---------- */
 function update(dt) {
   game.time += dt;
+  game.lastDt = dt;    // frame delta for frame-rate-independent subsystems (orbits)
   capEntities();       /* idea 90 */
   SFX.musicTick(dt);   /* ideas 75/76: zone music + boss layer */
   /* idea 62: playtime (only while actively playing) */
@@ -623,6 +633,7 @@ function update(dt) {
     game.player.swing = Math.max(0, game.player.swing - dt);
     game.player.hurtT = Math.max(0, game.player.hurtT - dt);
     game.player.dashCd = Math.max(0, game.player.dashCd - dt);
+    game.player.lavaT = Math.max(0, (game.player.lavaT || 0) - dt);
   }
   G.slowT = Math.max(0, G.slowT - dt);
   /* idea 14: stamina regen */
@@ -745,7 +756,11 @@ function update(dt) {
   for (const h of game.hazards || []) {
     if (p.x > h.x && p.x < h.x + h.w && p.y > h.y && p.y < h.y + h.h) {
       if (h.type === "ice") { const s = 0.55; p.x += dx * -s * combatDt; p.y += dy * -s * combatDt; }
-      else if (h.type === "lava") { G.slowT = Math.max(G.slowT, 0.8); damagePlayer(4, p.x, p.y); if (Math.random() < 0.3) flash("LAVA BURNS!", "#ff5a2a"); }
+      else if (h.type === "lava") {
+        G.slowT = Math.max(G.slowT, 0.8);
+        if ((p.lavaT || 0) <= 0) { p.lavaT = 0.35; damagePlayer(4, p.x, p.y); }
+        if (Math.random() < 0.05) flash("LAVA BURNS!", "#ff5a2a");
+      }
       else if (h.type === "void") { G.slowT = Math.max(G.slowT, 1.4); }
     }
   }
@@ -816,10 +831,12 @@ function update(dt) {
         if (dd < 260 && dd < best) { best = dd; target = e; }
       }
       if (target) {
-        const ang = Math.atan2(target.y - d.y, target.x - d.x);
-        game.projectiles.push(new Projectile("player", d.x, d.y, Math.cos(ang) * 380, Math.sin(ang) * 380, 4, 5, "#8fd4ff"));
-        d.rate = (d.rate || 0.35) - combatDt;
-        if (d.rate <= 0) d.rate = 0.35;
+        d.rate = (d.rate === undefined ? 0 : d.rate) - combatDt;
+        if (d.rate <= 0) {
+          d.rate = 0.35;
+          const ang = Math.atan2(target.y - d.y, target.x - d.x);
+          game.projectiles.push(new Projectile("player", d.x, d.y, Math.cos(ang) * 380, Math.sin(ang) * 380, 4, 5, "#8fd4ff"));
+        }
       }
       if (d.ttl <= 0) game.deployables.splice(i, 1);
     } else if (d.kind === "trap" && !d.hitOnce) {
@@ -919,7 +936,7 @@ function die() {
   /* idea 19: earn ember essence on death, spend at the shrine */
   G.meta.essence += Math.max(1, Math.floor(G.kills / 3));
   saveGame();
-  showOverlay("☠️ YOU FELL", `You felled ${G.kills} foes in level ${G.level}. The embers fade... but the story can be relived.<br>You earned <b style="color:#c084fc">${G.meta.essence} ember essence</b>.`, null, null, [
+  showOverlay("☠️ YOU FELL", `You felled <b>${G.kills}</b> foes. The embers fade... but the story can be relived.<br>Earned <b style="color:#c084fc">${G.meta.essence} ember essence</b>.`, null, null, [
     { label: "🕯️ VISIT THE EMBER SHRINE", fn: openShrine },
     { label: "🔄 TRY AGAIN", fn: resetGame, primary: true },
   ]);
@@ -982,6 +999,25 @@ function continueRun() {
 /* idea 65: credits */
 function showCredits() {
   showOverlay("ℹ️ CREDITS", `<b>${CFG.TITLE}</b> — a six-level action RPG (v${CFG.VERSION})<br>Made with vanilla JavaScript + Canvas.<br>Code, design, and synth SFX by you.<br>Music: procedural synth loops.<br><br>Thanks for playing!`, "⬅ BACK", resetGame);
+}
+
+/* dedicated help / info panel — long-form text lives here, off the HUD */
+function showHelp() {
+  const back = G.phase === "paused" ? openPauseMenu : resetGame;
+  showOverlay("❓ HELP", `
+    <b>KEYBOARD</b><br>
+    Move <span class="kbd">WASD</span> / arrows · Sword <span class="kbd">SPACE</span> (hold = heavy) · Ranged <span class="kbd">R</span>/right-click · Dash <span class="kbd">SHIFT</span> · Potion <span class="kbd">E</span> · Bomb <span class="kbd">F</span> · Turret <span class="kbd">G</span> · Trap <span class="kbd">T</span> · Cycle ranged <span class="kbd">Q</span>/<span class="kbd">1-4</span> · Pause <span class="kbd">P</span> · Sound <span class="kbd">M</span><br><br>
+    <b>TOUCH</b><br>
+    Drag the joystick to move. Buttons: sword, ranged, bomb, dash, potion, cycle, pause.<br><br>
+    <b>TIPS</b><br>
+    • Hold SPACE to charge a HEAVY SLAM.<br>
+    • A well-timed sword swing PARRYS contact damage.<br>
+    • Certain lands fear fire, ice, or lightning — pick weapons to match.<br>
+    • Smash crates: they hide gold, loot, and lore scrolls.<br>
+    • Ranged weapons fire on <span class="kbd">R</span> — the sword stays at the ready.<br><br>
+    <b>THE SIX DEPTHS</b><br>
+    Slay every foe to open the door, then spend gold at the campfire merchant. Cast the Void Sovereign from his throne.`,
+    "⬅ BACK", back);
 }
 
 /* idea 73: tutorial room 0 with floating prompts */
@@ -1077,22 +1113,24 @@ function openShop() {
   const hasArtifact = !!G.artifact;
   const newWeapons = ["spear", "boomerang", "orbs", "chain"].filter(w => !owned.includes(w));
   const merchantLine = MERCHANT_LINES[rand(0, MERCHANT_LINES.length - 1)];   // idea 84
-  showOverlay("🛒 CAMPFIRE MERCHANT", `Level ${G.level} of ${MAX_LEVEL} cleared · ${G.gold} gold.<br><span class="merchant">“${merchantLine}”</span><br><span class="skip-hint">SKIP SHOP → press <span class="kbd">ENTER</span> or tap <b>NEXT DOOR</b></span>`, null, null, [
-    { label: `🧪 POTION (40g)`, fn: buyPotion, disabled: G.gold < 40 },
-    { label: `🍵 FULL HEAL (30g)`, fn: buyHeal, disabled: G.gold < 30 || G.hp >= G.maxHp },
-    { label: `⚔️ +2 ATK (80g)`, fn: buyAttack, disabled: G.gold < 80 },
-    { label: `🛡️ +2 DEF (100g)`, fn: buyArmor, disabled: G.gold < 100 },
-    { label: `🔮 ARTIFACT (180g)`, fn: buyArtifact, disabled: hasArtifact || G.gold < 180, note: hasArtifact ? `HAS ${G.artifact}` : "One passive trinket" },   // idea 16
-    { label: `💣 BOMB x3 (60g)`, fn: buyBombs, disabled: G.gold < 60 },                                                                                 // idea 52
-    { label: `🤖 TURRET (140g)`, fn: buyTurret, disabled: G.gold < 140, note: "Deploy with G" },                                                        // idea 53
-    { label: `🪤 BEAR TRAP (90g)`, fn: buyTrap, disabled: G.gold < 90, note: "Set with T" },                                                            // idea 53
-    { label: `☠️ CURSED ITEM (100g)`, fn: buyCursed, disabled: G.gold < 100 },                                                                         // idea 54
-    ...newWeapons.map(w => ({ label: `${WEAPONS[w].icon} ${WEAPONS[w].name} (${WEAPONS[w].cost}g)`, fn: buyWeapon.bind(null, w), disabled: G.gold < WEAPONS[w].cost, note: WEAPONS[w].desc })),
-    { label: `🌊 WAVE BLADE (150g)`, fn: buyWeapon.bind(null, "wave"), disabled: owned.includes("wave") || G.gold < 150, note: owned.includes("wave") ? "OWNED" : "Shockwave burst" },
-    { label: `🏹 CROSSBOW (200g)`, fn: buyWeapon.bind(null, "crossbow"), disabled: owned.includes("crossbow") || G.gold < 200, note: owned.includes("crossbow") ? "OWNED" : "Fast bolts" },
-    { label: `🔥 EMBER STAFF (300g)`, fn: buyWeapon.bind(null, "staff"), disabled: owned.includes("staff") || G.gold < 300, note: owned.includes("staff") ? "OWNED" : "Explosive fireball" },
+  const g = c => `${shopPrice(c)}g`;
+  const afford = c => G.gold >= shopPrice(c);
+  showOverlay("🛒 CAMPFIRE MERCHANT", `Level ${G.level}/${MAX_LEVEL} · <b>${G.gold}g</b><br><span class="merchant">“${merchantLine}”</span><br><span class="skip-hint">SKIP → <span class="kbd">ENTER</span> or NEXT DOOR</span>`, null, null, [
+    { label: `🧪 POTION (${g(40)})`, fn: buyPotion, disabled: !afford(40) },
+    { label: `🍵 FULL HEAL (${g(30)})`, fn: buyHeal, disabled: !afford(30) || G.hp >= G.maxHp },
+    { label: `⚔️ +2 ATK (${g(80)})`, fn: buyAttack, disabled: !afford(80) },
+    { label: `🛡️ +2 DEF (${g(100)})`, fn: buyArmor, disabled: !afford(100) },
+    { label: `🔮 ARTIFACT (${g(180)})`, fn: buyArtifact, disabled: hasArtifact || !afford(180), note: hasArtifact ? `HAS ${G.artifact}` : "One passive trinket" },   // idea 16
+    { label: `💣 BOMB x3 (${g(60)})`, fn: buyBombs, disabled: !afford(60) },                                                                                  // idea 52
+    { label: `🤖 TURRET (${g(140)})`, fn: buyTurret, disabled: !afford(140), note: "Deploy with G" },                                                        // idea 53
+    { label: `🪤 BEAR TRAP (${g(90)})`, fn: buyTrap, disabled: !afford(90), note: "Set with T" },                                                            // idea 53
+    { label: `☠️ CURSED ITEM (${g(100)})`, fn: buyCursed, disabled: !afford(100) },                                                                         // idea 54
+    ...newWeapons.map(w => ({ label: `${WEAPONS[w].icon} ${WEAPONS[w].name} (${g(WEAPONS[w].cost)})`, fn: buyWeapon.bind(null, w), disabled: !afford(WEAPONS[w].cost), note: WEAPONS[w].desc })),
+    { label: `🌊 WAVE BLADE (${g(150)})`, fn: buyWeapon.bind(null, "wave"), disabled: owned.includes("wave") || !afford(150), note: owned.includes("wave") ? "OWNED" : "Shockwave burst" },
+    { label: `🏹 CROSSBOW (${g(200)})`, fn: buyWeapon.bind(null, "crossbow"), disabled: owned.includes("crossbow") || !afford(200), note: owned.includes("crossbow") ? "OWNED" : "Fast bolts" },
+    { label: `🔥 EMBER STAFF (${g(300)})`, fn: buyWeapon.bind(null, "staff"), disabled: owned.includes("staff") || !afford(300), note: owned.includes("staff") ? "OWNED" : "Explosive fireball" },
     { label: `🔀 REROLL STOCK (30g)`, fn: rerollShop, disabled: G.gold < 30 },                                                                          // idea 56
-    { label: `➡️ NEXT DOOR (FREE)`, fn: nextLevel },
+    { label: `➡️ NEXT DOOR`, fn: nextLevel },
     { label: `⬅️ BACK TO FIGHT`, fn: resumePlay },
   ]);
   checkSetBonus();   // idea 55
@@ -1106,18 +1144,18 @@ function rerollShop() {
   flash("Merchant restocks... (25% off next visit)", "#6bff9a");
   openShop();
 }
-function shopDiscount() { return rerolled ? 0.75 : 1; }
+function shopPrice(cost) { return Math.round(cost * (rerolled ? 0.75 : 1)); }
 
-function buyPotion() { G.gold -= 40; G.potions++; SFX.buy(); flash("Bought potion"); renderHUD(); openShop(); }
-function buyHeal()   { G.gold -= 30; G.hp = G.maxHp; SFX.buy(); flash("Fully healed!", "#6bff9a"); renderHUD(); openShop(); }
-function buyAttack() { G.gold -= 80; G.atk += 2; G.sword++; SFX.buy(); flash("ATK +2"); renderHUD(); openShop(); }
-function buyArmor()  { G.gold -= 100; G.def += 2; G.armor++; SFX.buy(); flash("DEF +2"); renderHUD(); openShop(); }
-function buyBombs()  { G.gold -= 60; G.bombs = (G.bombs || 0) + 3; SFX.buy(); flash("+3 bombs (F)"); renderHUD(); openShop(); }
-function buyTurret() { G.gold -= 140; G.turrets = (G.turrets || 0) + 1; SFX.buy(); flash("+1 turret (G)"); renderHUD(); openShop(); }
-function buyTrap()   { G.gold -= 90; G.traps = (G.traps || 0) + 1; SFX.buy(); flash("+1 bear trap (T)"); renderHUD(); openShop(); }
+function buyPotion() { G.gold -= shopPrice(40); G.potions++; SFX.buy(); flash("Bought potion"); renderHUD(); openShop(); }
+function buyHeal()   { G.gold -= shopPrice(30); G.hp = G.maxHp; SFX.buy(); flash("Fully healed!", "#6bff9a"); renderHUD(); openShop(); }
+function buyAttack() { G.gold -= shopPrice(80); G.atk += 2; G.sword++; SFX.buy(); flash("ATK +2"); renderHUD(); openShop(); }
+function buyArmor()  { G.gold -= shopPrice(100); G.def += 2; G.armor++; SFX.buy(); flash("DEF +2"); renderHUD(); openShop(); }
+function buyBombs()  { G.gold -= shopPrice(60); G.bombs = (G.bombs || 0) + 3; SFX.buy(); flash("+3 bombs (F)"); renderHUD(); openShop(); }
+function buyTurret() { G.gold -= shopPrice(140); G.turrets = (G.turrets || 0) + 1; SFX.buy(); flash("+1 turret (G)"); renderHUD(); openShop(); }
+function buyTrap()   { G.gold -= shopPrice(90); G.traps = (G.traps || 0) + 1; SFX.buy(); flash("+1 bear trap (T)"); renderHUD(); openShop(); }
 function buyCursed() {
   const c = CURSED_ITEMS[rand(0, CURSED_ITEMS.length - 1)];
-  G.gold -= 100;
+  G.gold -= shopPrice(100);
   c.apply();
   flash(`CURSED: ${c.name} — ${c.desc}`, "#c084fc");
   renderHUD();
@@ -1157,6 +1195,7 @@ function buyWeapon(w) {
 
 function nextLevel() {
   hideOverlay();
+  rerolled = false;   // merchant discount lasts one visit
   const n = G.level + 1;
   if (n > MAX_LEVEL) return winGame();
   G.sword++; G.atk += 3; G.maxHp += 20; G.hp = G.maxHp; G.potions++;
@@ -1184,11 +1223,12 @@ function openOptions() {
   ]);
 }
 function openPauseMenu() {
-  showOverlay("⏸ PAUSED", "The embers hold their breath.", null, null, [
+  showOverlay("⏸ PAUSED", "", null, null, [
     { label: "▶ RESUME", fn: resumePaused, primary: true },
     { label: "🔄 RESTART LEVEL", fn: () => { setupLevel(G.level); resumePaused(); } },
     { label: "⚙️ OPTIONS", fn: openOptions },
     { label: "⚙️ DIFFICULTY", fn: openDifficultyMenu },
+    { label: "❓ HELP", fn: showHelp },
     { label: "🏠 QUIT TO MENU", fn: resetGame },
   ]);
 }
@@ -1230,7 +1270,7 @@ function runLoreCrawl() {
   c.classList.add("show");
   t.innerHTML = LORE_CRAWL.map(line => `<p>${line}</p>`).join("");
   t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
-  setTimeout(() => { c.classList.remove("show"); hideOverlay(); runTutorial(); }, 7300);
+  window._crawlT = setTimeout(() => { c.classList.remove("show"); hideOverlay(); runTutorial(); }, 7300);
 }
 
 /* idea 85: collectible lore notes → journal */
@@ -1268,7 +1308,14 @@ document.addEventListener("visibilitychange", () => {
 /* idea 90: entity caps so low-end machines hold 60fps */
 const CAPS = { enemies: 55, projectiles: 220, effects: 320 };
 function capEntities() {
-  if (game.enemies.length > CAPS.enemies) game.enemies.length = CAPS.enemies;
+  /* idea 90: entity caps so low-end machines hold 60fps */
+  if (game.enemies.length > CAPS.enemies) {
+    /* drop non-bosses first — never cull a boss mid-fight */
+    const keep = game.enemies.filter(e => e.isBoss);
+    const drop = game.enemies.filter(e => !e.isBoss);
+    drop.length = Math.max(0, CAPS.enemies - keep.length);
+    game.enemies = keep.concat(drop);
+  }
   if (game.projectiles.length > CAPS.projectiles) game.projectiles.length = CAPS.projectiles;
   if (game.effects.length > CAPS.effects) game.effects.length = CAPS.effects;
   if (game.G.loot.length > 80) game.G.loot.length = 80;
@@ -1331,7 +1378,9 @@ function resetGame() {
   G.meta = meta || { essence: 0, lvls: { hp: 0, atk: 0, gold: 0, potion: 0, crit: 0 } };
   G.className = cls || "KNIGHT";
   Object.assign(game, { player: null, enemies: [], projectiles: [], waves: [], effects: [], arcs: [], time: 0, shake: 0, weapon: "sword", secondary: null, weapons: ["sword"],
-    obstacles: [], hazards: [], traps: [], crates: [], shrine: null });
+    obstacles: [], hazards: [], traps: [], crates: [], shrine: null,
+    orbits: [], deployables: [], burnZones: [] });
+  rerolled = false;
   G.aoeZones = []; G.dmgTaken = 0; G.slowmoT = 0; G.branchChosen = false;
   /* idea 20: class picker on the menu */
   const classBtns = CLASSES.map(c => ({
@@ -1356,10 +1405,11 @@ function resetGame() {
     ...classBtns,
     continueBtn, rushBtn, dailyBtn, statsBtn, bestiBtn, achBtn, journalBtn, teleBtn,
     { label: "⚙️ OPTIONS", fn: openOptions },   // idea 65: options from menu
+    { label: "❓ HELP", fn: showHelp },
     { label: "ℹ️ CREDITS", fn: showCredits },   // idea 65
   ];
   if (doubleBtn) buttons.push(doubleBtn);
-  showOverlay("BLOB<span>KNIGHT</span>", `You are the last blob knight. Carry the spark through ${MAX_LEVEL} lands and cast the Void Sovereign from his throne.<br>Move <span class='kbd'>WASD</span> · Sword <span class='kbd'>SPACE</span> (hold to charge) · Ranged <span class='kbd'>R</span>/right-click · Dash <span class='kbd'>SHIFT</span> · Potion <span class='kbd'>E</span> · Bomb <span class='kbd'>F</span> · Turret <span class='kbd'>G</span> · Trap <span class='kbd'>T</span> · Ranged weapons <span class='kbd'>1-4</span>/<span class='kbd'>Q</span> · Pause <span class='kbd'>P</span> · Sound <span class='kbd'>M</span>`, null, null, buttons);
+  showOverlay("BLOB<span>KNIGHT</span>", `You are the last blob knight. Carry the spark through ${MAX_LEVEL} depths and cast the Void Sovereign from his throne.`, null, null, buttons, true);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1385,11 +1435,12 @@ function resetRunStart() {
 }
 
 /* ---------- overlays ---------- */
-function showOverlay(title, body, btnLabel, btnFn, buttons) {
+function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
   const o = $("overlay");
   o.innerHTML = `<h2>${title}</h2><p>${body}</p>`;
-  o.style.display = "flex";
-  if (G.phase === "menu") {
+  o.classList.toggle("main-menu", !!addName);
+  o.style.display = addName ? "grid" : "flex";
+  if (G.phase === "menu" && addName) {
     const inp = document.createElement("input");
     inp.type = "text"; inp.maxLength = 14; inp.placeholder = "NAME YOUR HERO...";
     inp.autocomplete = "off"; inp.spellcheck = false;
@@ -1540,9 +1591,9 @@ function updateHintKeys() {
   const el = $("hintKeys");
   if (!el) return;
   const hasSec = game.secondary && WEAPONS[game.secondary];
-  const parts = ["SPACE SWORD", "R RANGED", "SHIFT DASH", "E POTION", "F BOMB", "G TURRET", "T TRAP"];
+  const parts = ["SPACE ⚔️", "R 🏹", "SHIFT 💨", "E 🧪", "F 💣", "G 🤖", "T 🪤"];
   const base = hasSec ? parts : parts.filter(p => !p.startsWith("R "));
-  el.textContent = base.join(" · ") + " · P PAUSE · M SOUND";
+  el.textContent = base.join("  ") + "   P ⏸   M 🔇";
 }
 updateHintKeys();
 /* ---------- easter egg 1: candle ---------- */

@@ -37,6 +37,7 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 }
 .hud-ident{display:flex;align-items:baseline;gap:8px;font-size:13px;min-width:0}
 .hud-ident #hName{font-weight:bold;letter-spacing:1px;font-size:14px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hud-ident .class-txt{flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:16vw}
 .lvl-badge{color:#8fd4ff;font-weight:bold;letter-spacing:1px;font-size:12px;border:1px solid #2a3a52;border-radius:6px;padding:1px 7px;background:#121a2c;white-space:nowrap}
 .lvl-badge .plvl{color:#ffd166;margin-left:6px}
 .hud-top-right{display:flex;align-items:center;gap:12px;font-size:13px;white-space:nowrap}
@@ -60,7 +61,7 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 /* ---------- HUD: gear / tools (bottom-left) ---------- */
 #hudGear{
   position:absolute;left:10px;bottom:10px;
-  display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:62%;
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:70%;
 }
 .gear-slot{
   background:rgba(13,11,20,.72);border:1px solid #3b2f5e;border-radius:7px;
@@ -72,7 +73,8 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 .gear-slot.tool{color:#e8d17a}
 .gear-slot.tool.zero{opacity:.45}
 #hPot{color:#6bff9a}
-#hDash{color:#9a90b8;font-size:11px;padding:3px 4px;white-space:nowrap}
+#hDash{color:#9a90b8;font-size:11px;padding:3px 8px;white-space:nowrap;
+  background:rgba(13,11,20,.72);border:1px solid #3b2f5e;border-radius:7px}
 #hDash.ready{color:#6bff9a;animation:dashpulse 1.6s infinite}
 .combo-txt{color:#ffd166;font-weight:bold;font-size:15px}
 .combo-txt.active{animation:dashpulse .3s infinite}
@@ -81,15 +83,15 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 /* ---------- HUD: contextual key hint (bottom-center, desktop) ---------- */
 #hudHint{
   position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
-  font-size:9.5px;letter-spacing:1px;color:#9a90b8;
+  font-size:9px;letter-spacing:1px;color:#9a90b8;
   background:rgba(13,11,20,.55);border:1px solid #2a2440;border-radius:6px;
-  padding:3px 10px;white-space:nowrap;max-width:96%;overflow:hidden;text-overflow:ellipsis;
+  padding:2px 8px;white-space:nowrap;max-width:96%;overflow:hidden;text-overflow:ellipsis;
   pointer-events:none;
 }
 
 /* ---------- boss bar ---------- */
 #bossBar{
-  position:absolute;top:84px;left:50%;transform:translateX(-50%);width:min(70%,420px);
+  position:absolute;top:96px;left:50%;transform:translateX(-50%);width:min(70%,420px);
   background:rgba(13,11,20,.8);border:1px solid #5a2a2a;border-radius:8px;padding:6px 12px;
   display:none;flex-direction:column;gap:4px;z-index:6;pointer-events:none;
 }
@@ -111,9 +113,19 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 }
 #overlay h2{letter-spacing:5px;font-size:28px;margin-bottom:6px}
 #overlay h2 span{color:#ff7847}
-#overlay p{color:#9a90b8;font-size:14px;line-height:1.7}
+#overlay p{color:#9a90b8;font-size:14px;line-height:1.7;max-width:640px}
 .menu-secret{font-size:12px}
 .skip-hint{display:block;margin-top:8px;font-size:11px;color:#6bff9a;letter-spacing:1px}
+
+/* main menu: two-column grid so the long button list uses the side space */
+#overlay.main-menu{
+  grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:8px;align-content:start;justify-items:center;
+}
+#overlay.main-menu h2{grid-column:1/-1;justify-self:center}
+#overlay.main-menu > p{grid-column:1/-1;justify-self:center}
+#overlay.main-menu input{grid-column:1/-1;justify-self:center}
+#overlay.main-menu .btn{width:100%;max-width:330px;justify-self:center}
 .btn{
   font-family:inherit;font-size:13px;letter-spacing:1px;cursor:pointer;background:#241c3a;
   color:#e8e3f5;border:1px solid #3b2f5e;border-radius:8px;padding:10px 20px;transition:.15s;
@@ -213,7 +225,7 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   #hudGear{left:6px;bottom:6px;gap:4px;max-width:56%}
   .gear-slot{padding:2px 6px;font-size:9.5px}
   #hudHint{display:none}
-  #bossBar{top:70px;width:min(82%,420px)}
+  #bossBar{top:82px;width:min(82%,420px)}
   #overlay h2{font-size:22px}
   #overlay p{font-size:12px}
   #joyZone{left:8px;bottom:150px;width:112px;height:112px}
