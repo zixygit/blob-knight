@@ -1567,7 +1567,6 @@ function resetGame() {
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
     { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
     { label: "🌀 GOD RUN PERKS", fn: showGodPerks, note: `${GOD_PERKS.unlocked.length}/4 unlocked` },
-    { label: "🛒 SHOP", fn: openShop, note: `${G.gold}g` },
     { label: "⚙️ SETTINGS", fn: openOptions },
     { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(()=> { try{ window.close(); }catch(e){} }, 400); } },
   ];
