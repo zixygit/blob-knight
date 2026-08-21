@@ -7,7 +7,7 @@ const CFG = {
   W: 800,
   H: 600,
   MARGIN: 30,
-  TITLE: "BLOB KNIGHT", VERSION: "0.05",   // idea 100: version tag
+  TITLE: "BLOB KNIGHT", VERSION: "0.06",   // idea 100: version tag
   PLAYER: { r: 14, speed: 170, maxHp: 100, atk: 10, def: 4, potions: 2, potionHeal: 40 },
   SWORD_RANGE: 42,
   SWORD_ARC: 1.1,
@@ -16,7 +16,7 @@ const CFG = {
   DASH_CD: 1.6,
 };
 
-const MAX_LEVEL = 10;
+const MAX_LEVEL = 16;   /* chapter two: the sundered depths (12-16) */
 
 /* ---------- enemy archetypes (stats can be overridden per level) ---------- */
 const ENEMY_TYPES = {
@@ -46,6 +46,22 @@ const ENEMY_TYPES = {
   swarm:    { name: "VOID SWARM", r: 7,  speed: 150, color: "#e8d17a", dmg: [3, 5],   hp: 8,  kind: "swarm" },
   guard:    { name: "CRYPT WATCHER", r: 15, speed: 55,  color: "#7a8aa8", dmg: [5, 8],   hp: 55, kind: "guard",
               patrolA: 60, patrolB: 200, aggro: 200 },
+  /* --- chapter two: the sundered depths — new archetypes --- */
+  acid:     { name: "FEN SPITTER", r: 13, speed: 70,  color: "#8fc04d", dmg: [4, 7],  hp: 34, kind: "acid",
+              fireCd: 3.2, proj: { speed: 210, r: 7, color: "#a8e05a", dmg: [4, 7],
+              pool: { r: 42, life: 3, dps: 8, color: "#8fc04d" } } },
+  drone:    { name: "GLASS HORNET", r: 10, speed: 135, color: "#c8e8f0", dmg: [3, 5],  hp: 20, kind: "drone",
+              fireCd: 2.9, proj: { speed: 300, r: 4, color: "#a8d8e8", dmg: [5, 8] } },
+  assassin: { name: "DUSK STALKER", r: 12, speed: 165, color: "#6a5a9a", dmg: [8, 13], hp: 26, kind: "assassin", teleCd: 5 },
+  gazer:    { name: "RIFT EYE", r: 14, speed: 40,  color: "#d4a8ff", dmg: [8, 12], hp: 44, kind: "gazer",
+              gazeCd: 4.5, gazeRange: 340 },
+  berserker:{ name: "MAW BRUTE", r: 16, speed: 62,  color: "#b83a3a", dmg: [7, 11], hp: 80, kind: "berserker" },
+  hunter:   { name: "PREY SEEKER", r: 13, speed: 125, color: "#e8a83d", dmg: [9, 14], hp: 38, kind: "hunter", huntCd: 3.6 },
+  commander:{ name: "BANNER WARDEN", r: 16, speed: 55, color: "#c8a44a", dmg: [6, 10], hp: 95, kind: "commander", rallyCd: 7 },
+  tentacle: { name: "RIFT TENDRIL", r: 18, speed: 0,  color: "#8a6fd4", dmg: [10, 15], hp: 120, kind: "tentacle", slamCd: 3.8 },
+  trapper:  { name: "SILK WEAVER", r: 12, speed: 80,  color: "#d8d8e8", dmg: [3, 6],  hp: 30, kind: "trapper",
+              fireCd: 3.5, proj: { speed: 260, r: 6, color: "#e8e8f8", dmg: [3, 6],
+              pool: { r: 46, life: 4, dps: 0, web: true, color: "#c8c8d8" } } },
 };
 
 /* ---------- level layouts ---------- */
@@ -215,6 +231,8 @@ const LEVELS = {
       { name: "SPECTRAL SNIPER", type: "sniper",  count: 1 },
       { name: "SKULL CHARGER",  type: "charger",  count: 1 },
       { name: "BONE GOLIATH",   type: "elite",    count: 1 },
+      { name: "TIDE SPITTER",   type: "acid",     count: 1 },   /* chapter two preview */
+      { name: "REEF WEAVER",    type: "trapper",  count: 1 },
     ],
     boss: {
       name: "LURIAN, THE ARCHIVIST", kind: "boss", isBoss: true,
@@ -238,6 +256,7 @@ const LEVELS = {
       { name: "ASH SWARM",      type: "swarm",   count: 3 },
       { name: "AVALANCHE BRUTE", type: "charger", count: 2 },
       { name: "INFERNAL BRUTE", type: "elite",   count: 2 },
+      { name: "CINDER MAW",     type: "berserker", count: 1 },  /* chapter two preview */
     ],
     boss: {
       name: "VOLKRATH, CRIMSON TITAN", kind: "boss", isBoss: true,
@@ -264,6 +283,8 @@ const LEVELS = {
       { name: "VOID SWARM",     type: "swarm",    count: 3 },
       { name: "VOID SENTINEL",  type: "elite",    count: 2 },
       { name: "BONE CALLER",    type: "summoner", count: 1 },
+      { name: "VOID HORNET",    type: "drone",    count: 1 },  /* chapter two preview */
+      { name: "NULL SEEKER",    type: "hunter",   count: 1 },
     ],
     boss: {
       name: "THARAN, THE WORLD-ENDER", kind: "boss", isBoss: true,
@@ -292,6 +313,9 @@ const LEVELS = {
       { name: "HOLLOW MARKSMAN", type: "sniper",  count: 2 },
       { name: "HOLLOW SWARM",   type: "swarm",    count: 4 },
       { name: "HOLLOW SENTINEL", type: "elite",   count: 2 },
+      { name: "HOLLOW TENDRIL", type: "tentacle", count: 1 },   /* chapter two preview */
+      { name: "HOLLOW EYE",     type: "gazer",    count: 1 },
+      { name: "HOLLOW BLADE",   type: "assassin", count: 1 },
     ],
     boss: {
       name: "THE HOLLOW KING, ECHO OF THE SOVEREIGN", kind: "boss", isBoss: true,
@@ -308,6 +332,150 @@ const LEVELS = {
     },
     bossReward: 600,
   },
+
+  /* ============================================================
+     CHAPTER TWO — THE SUNDERED DEPTHS (12-16)
+     12 teaches the new mechanics, 13-15 combine them under pressure,
+     16 is the mastery test. Boss kits are phase-gated (`from: 2/3`),
+     so each fight escalates instead of just speeding up.
+     ============================================================ */
+  12: {
+    name: "THE MAW GATE",
+    bg: "#16241a", wall: "#2e4a34",
+    /* teaches: acid pools deny ground, drones punish standing still,
+       webs slow you into both — keep moving, watch the floor */
+    minions: [
+      { name: "FEN LURKER",   type: "chaser",  count: 2 },
+      { name: "FEN SPITTER",  type: "acid",    count: 2 },
+      { name: "GLASS HORNET", type: "drone",   count: 2 },
+      { name: "SILK WEAVER",  type: "trapper", count: 1 },
+      { name: "FEN BRUTE",    type: "brute",   count: 1, elite: "FRANTIC" },   /* mini-boss */
+    ],
+    boss: {
+      name: "SPLINTERMAW, THE FEN TYRANT", kind: "boss", isBoss: true,
+      hp: 600, r: 34, speed: 82, color: "#5a8a3d", dmg: [11, 16],
+      volley: { count: 3, spread: 0.5, speed: 230, dmg: [8, 12], color: "#a8e05a", pool: { r: 46, life: 3, dps: 9, color: "#8fc04d" } },
+      radial: { count: 12, speed: 220, dmg: [7, 10], color: "#8fc04d", from: 2 },
+      summon: { type: "drone", name: "SPRITE HORNET", count: 2, cd: 9, from: 2 },
+      aoe: { radius: 84, count: 3, dmg: [9, 13], delay: 1.0, color: "#a8e05a", cd: 8, from: 3 },
+      mech: "charge", mechCd: 5.5, mechSpeed: 540,                    /* mech: devouring lunge through the muck */
+      volleyCd: 2.4, radialCd: 3.6, enrageAt: 0.6, enrage2At: 0.3,
+    },
+    bossReward: 480,
+  },
+  13: {
+    name: "THE GLASS COURT",
+    bg: "#181426", wall: "#3a2f56",
+    /* combines: the healer sustains the shielder wall while stalkers
+       blink in — decide fast who dies first */
+    minions: [
+      { name: "DUSK STALKER",   type: "assassin", count: 1 },
+      { name: "GLAZED SHIELDER", type: "shielder", count: 1 },
+      { name: "COURT HEALER",   type: "healer",   count: 1 },
+      { name: "RIFT EYE",       type: "gazer",    count: 1 },
+      { name: "COURT WRAITH",   type: "phantom",  count: 1 },
+      { name: "THE FIRST BLADE", type: "assassin", count: 1, elite: "FLEETING" },   /* mini-boss */
+    ],
+    boss: {
+      name: "VESPERA, THE GLASS QUEEN", kind: "boss", isBoss: true,
+      hp: 640, r: 30, speed: 88, color: "#b8a8e8", dmg: [10, 15],
+      volley: { count: 4, spread: 0.45, speed: 320, dmg: [8, 12], color: "#d8ccf8", bounce: 2 },
+      radial: { count: 8, speed: 260, dmg: [7, 11], color: "#c0a8f0", bounce: 1, from: 2 },
+      summon: { type: "assassin", name: "GLASS DANCER", count: 1, cd: 14, from: 2 },
+      spiral: { count: 3, step: 0.22, twist: 0.65, speed: 200, dmg: [6, 10], color: "#d8ccf8", from: 3 },
+      despair: { count: 22, speed: 300, dmg: [10, 14], color: "#ff2a6a" },
+      mech: ["blink", "clones"], mechCd: 6,                         /* mech: warps + mirror echoes */
+      volleyCd: 2.3, radialCd: 3.8, enrageAt: 0.62, enrage2At: 0.28, despairAt: 0.05,
+    },
+    bossReward: 520,
+  },
+  14: {
+    name: "THE THUNDER ROOST",
+    bg: "#141a24", wall: "#2e3a54",
+    /* pressure: hunters lead your movement while harriers orbit —
+       dodge sideways, never straight; the berserker punishes hesitation */
+    waves: [
+      [ { name: "STORM HARRIER",   type: "drone",   count: 2 },
+        { name: "PREY SEEKER",     type: "hunter",  count: 1 },
+        { name: "GALE SWARM",      type: "swarm",   count: 2 } ],
+      [ { name: "GALE SEEKER",     type: "hunter",  count: 1, elite: "FRANTIC" },   /* mini-boss */
+        { name: "MAW BRUTE",       type: "berserker", count: 1 },
+        { name: "SPECTRAL SNIPER", type: "sniper",  count: 1 } ],
+    ],
+    boss: {
+      name: "THANE VOLDRIC, THE STORM HUNTER", kind: "boss", isBoss: true,
+      hp: 700, r: 32, speed: 92, color: "#6a8ae8", dmg: [11, 17],
+      volley: { count: 3, spread: 0.4, speed: 340, dmg: [9, 13], color: "#a8c8ff", lead: true },
+      radial: { count: 14, speed: 250, dmg: [8, 12], color: "#8ab8ff", from: 2 },
+      summon: { type: "drone", name: "TEMPEST HARRIER", count: 2, cd: 10, from: 2 },
+      laser: { speed: 430, dmg: [11, 15], color: "#a8c8ff", sweep: 2.2, cd: 7, from: 2 },
+      spiral: { count: 4, step: 0.2, twist: 0.55, speed: 220, dmg: [7, 11], color: "#a8c8ff", from: 3 },
+      despair: { count: 26, speed: 310, dmg: [11, 15], color: "#ff2a6a" },
+      mech: ["lightning", "charge"], mechCd: 5, mechSpeed: 600,      /* mech: sky strikes + harpoon dash */
+      volleyCd: 2.2, radialCd: 3.4, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.06,
+    },
+    bossReward: 560,
+  },
+  15: {
+    name: "THE IRON WARREN",
+    bg: "#241d12", wall: "#4a3a20",
+    /* army fight: three waves — the banner warden's rally turns every
+       remaining foe into a charge; kill the banner, break the army */
+    waves: [
+      [ { name: "IRON LEGIONARY", type: "guard",   count: 2 },
+        { name: "FORGE TROLL",    type: "brute",   count: 1 },
+        { name: "EMBER TICK",     type: "bomber",  count: 1 } ],
+      [ { name: "BANNER SERGEANT", type: "commander", count: 1 },
+        { name: "GLAZED SHIELDER", type: "shielder", count: 1 },
+        { name: "IRON CROSSBOW",  type: "shooter", count: 2, proj: { speed: 320, r: 5, color: "#ffb45e", dmg: [6, 9] } } ],
+      [ { name: "FORGE TROLL",    type: "brute",   count: 2, elite: "WARDING" },   /* mini-boss pair */
+        { name: "SILK WEAVER",    type: "trapper", count: 1 },
+        { name: "EMBER TICK",     type: "bomber",  count: 2 } ],
+    ],
+    boss: {
+      name: "FORGEMASTER ORUN, HERALD OF LEGIONS", kind: "boss", isBoss: true,
+      hp: 780, r: 34, speed: 78, color: "#d4883d", dmg: [12, 18],
+      volley: { count: 4, spread: 0.5, speed: 300, dmg: [9, 13], color: "#ffb45e" },
+      radial: { count: 16, speed: 240, dmg: [8, 12], color: "#ff8b3d", from: 2 },
+      summon: { type: "guard", name: "IRON LEGIONARY", count: 3, cd: 8, from: 2 },
+      aoe: { radius: 90, count: 3, dmg: [10, 14], delay: 1.1, color: "#ffb45e", cd: 7, from: 2 },
+      spiral: { count: 4, step: 0.2, twist: 0.6, speed: 220, dmg: [8, 12], color: "#ff8b3d", from: 3 },
+      despair: { count: 28, speed: 300, dmg: [12, 16], color: "#ff2a6a" },
+      mech: ["vents", "shield"], mechCd: 6.5, mechDur: 2.0,          /* mech: forge vents + guard windows */
+      volleyCd: 2.2, radialCd: 3.4, enrageAt: 0.6, enrage2At: 0.28, despairAt: 0.06,
+    },
+    bossReward: 620,
+  },
+  16: {
+    name: "THE ABYSSAL SEAT",
+    bg: "#0a0a14", wall: "#26264a",
+    /* mastery: tendrils and pools carve up the arena, the banner warden
+       rallies, hunters and stalkers dive — every lesson at once */
+    waves: [
+      [ { name: "RIFT TENDRIL",  type: "tentacle", count: 2 },
+        { name: "RIFT EYE",      type: "gazer",    count: 2 },
+        { name: "FEN SPITTER",   type: "acid",     count: 2 },
+        { name: "ABYSS WRAITH",  type: "phantom",  count: 2 } ],
+      [ { name: "DUSK STALKER",   type: "assassin", count: 2 },
+        { name: "PREY SEEKER",    type: "hunter",   count: 2 },
+        { name: "BANNER WARDEN",  type: "commander", count: 1, elite: "WARDING" },   /* mini-boss */
+        { name: "VOID SWARM",     type: "swarm",    count: 3 } ],
+    ],
+    boss: {
+      name: "AZHAROTH, HEART OF THE EMBERFALL", kind: "boss", isBoss: true,
+      hp: 900, r: 40, speed: 95, color: "#ff6a3d", dmg: [14, 20],
+      volley: { count: 5, spread: 0.45, speed: 360, dmg: [10, 14], color: "#ff8b3d", burn: true },
+      radial: { count: 18, speed: 260, dmg: [9, 13], color: "#ffb45e" },
+      summon: { type: "imp", name: "EMBER MOTE", count: 3, cd: 8, from: 2 },
+      spiral: { count: 5, step: 0.2, twist: 0.55, speed: 240, dmg: [8, 12], color: "#ff8b3d", from: 2 },
+      laser: { speed: 480, dmg: [13, 17], color: "#ff5a2a", sweep: 2.8, cd: 6, from: 2 },
+      aoe: { radius: 100, count: 4, dmg: [11, 15], delay: 0.9, color: "#ff8b3d", cd: 6, from: 3 },
+      despair: { count: 32, speed: 320, dmg: [12, 16], color: "#ff2a6a" },
+      mech: ["pull", "lightning", "emberfall"], mechCd: 5.5,        /* mech: gravity + sky strikes + ember rain */
+      volleyCd: 2.0, radialCd: 2.9, enrageAt: 0.62, enrage2At: 0.26, despairAt: 0.06,
+    },
+    bossReward: 700,
+  },
 };
 
 /* ---------- weapon catalog ---------- */
@@ -323,7 +491,8 @@ const WEAPONS = {
 };
 
 /* idea 51: elemental damage + zone weaknesses */
-const ELEMENT_WEAKNESS = { 1: null, 2: "ice", 3: "ice", 4: "fire", 5: "lightning", 6: "lightning", 7: "fire", 8: "ice", 9: "lightning", 10: "fire" };
+const ELEMENT_WEAKNESS = { 1: null, 2: "ice", 3: "ice", 4: "fire", 5: "lightning", 6: "lightning", 7: "fire", 8: "ice", 9: "lightning", 10: "fire",
+                           11: null, 12: "fire", 13: "lightning", 14: "ice", 15: "ice", 16: "fire" };
 const ELEMENTS = { fire: "#ff8b3d", ice: "#7fd4e8", lightning: "#ffd166" };
 
 /* idea 52: throwable bombs as consumable */
@@ -428,4 +597,10 @@ const ELITE_MODS = [                                    // idea 30: elite rolls
   { name: "COLOSSAL", desc: "Bigger + tougher",  apply: d => { d.r += 4; } },
   { name: "REGENERATIVE", desc: "Heals over time", apply: () => {} },
   { name: "SCALDING", desc: "Burning touch",     apply: d => { d.burn = true; } },
+  /* chapter two: behavior elites — the mod changes HOW the foe fights */
+  { name: "FRANTIC", desc: "Attacks twice as fast", apply: () => {} },
+  { name: "FLEETING", desc: "Blinks away when struck", apply: () => {} },
+  { name: "DEATHBURST", desc: "Erupts on death", apply: () => {} },
+  { name: "WARDING", desc: "Raises a guard periodically", apply: () => {} },
+  { name: "AUREATE", desc: "Gilded — spills riches", apply: d => { d.hp = Math.round(d.hp * 1.2); } },
 ];

@@ -169,6 +169,7 @@ function draw(game) {
   /* idea 43: minimap */
   drawMinimap(game);
 
+  drawHazardZones(game);
   drawLoot(game);
   drawDoor(game);
   drawWaves(game);
@@ -188,9 +189,35 @@ function draw(game) {
   ctx.setLineDash([]);
 }
 
+/* chapter two: persistent floor hazards — acid pools, silk webs, forge heat */
+function drawHazardZones(game) {
+  for (const z of game.hazardZones || []) {
+    const a = clamp(z.t / z.max, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = (0.20 + 0.08 * Math.sin(game.time * 5)) * Math.min(1, a * 2);
+    ctx.fillStyle = z.color;
+    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, 7); ctx.fill();
+    ctx.globalAlpha = 0.35 + 0.3 * a;
+    ctx.strokeStyle = z.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, 7); ctx.stroke();
+    if (z.web) {   // silk strands read at a glance
+      ctx.globalAlpha = 0.3 + 0.2 * a;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const an = i / 4 * Math.PI * 2 + 0.4;
+        ctx.beginPath();
+        ctx.moveTo(z.x + Math.cos(an) * z.r * 0.2, z.y + Math.sin(an) * z.r * 0.2);
+        ctx.lineTo(z.x + Math.cos(an) * z.r, z.y + Math.sin(an) * z.r);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
 function drawLoot(game) {
-  const colors = { gold: "#ffd166", potion: "#ff6b6b", herb: "#6bff9a", stone: "#e8e3f5", charm: "#c084fc", rune: "#8fd4ff", perk: "#c084fc" };
-  const cb = SETTINGS.colorblind !== "off";
+  const colors = { gold: "#ffd166", potion: "#ff6b6b", herb: "#6bff9a", stone: "#e8e3f5", charm: "#c084fc", rune: "#8fd4ff", perk: "#c084fc" };  const cb = SETTINGS.colorblind !== "off";
   for (const l of game.G.loot) {
     ctx.save();
     ctx.translate(l.x, l.y + Math.sin(l.t * 4) * 2);
@@ -289,6 +316,85 @@ function drawEnemies(game) {
     }
     // phantom: fading in and out of phase
     if (e.kind === "phantom") ctx.globalAlpha = 0.55 + 0.35 * Math.sin(game.time * 6);
+
+    /* ---- chapter two tells — every new attack is readable before it lands ---- */
+    // assassin: nearly invisible while phased, flashing while marking
+    if (e.kind === "assassin") {
+      if (e.aState === "vanish") ctx.globalAlpha = 0.12;
+      else if (e.aState === "mark") ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(game.time * 18));
+      else ctx.globalAlpha = 0.85;
+    }
+    // gazer: charge line — thin while tracking, thick + hot when locked
+    if (e.kind === "gazer" && e.gazeCharge > 0) {
+      const locked = e.gazeCharge <= (e.gazeLock || 0.5);
+      ctx.strokeStyle = locked ? "rgba(255,90,180,0.9)" : "rgba(212,168,255,0.4)";
+      ctx.lineWidth = locked ? 4 : 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(e.aimAng || 0) * (e.gazeRange || 340), Math.sin(e.aimAng || 0) * (e.gazeRange || 340));
+      ctx.stroke();
+    }
+    // hunter: dashes through the marked spot — speed lines while striking
+    if (e.kind === "hunter" && e.hDashT > 0) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(0, 0, e.r * 1.4, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // berserker: rage aura grows with each threshold
+    if (e.kind === "berserker" && e.rageStage > 0) {
+      ctx.globalAlpha = 0.18 + 0.12 * e.rageStage * Math.abs(Math.sin(game.time * (6 + e.rageStage * 3)));
+      ctx.fillStyle = "#ff5a2a";
+      ctx.beginPath(); ctx.arc(0, 0, e.r + 6 + e.rageStage * 3, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // commander: banner pole + inspiration aura ring
+    if (e.kind === "commander") {
+      ctx.strokeStyle = "rgba(255,209,102,0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.arc(0, 0, e.r + 10, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#8a6a2a"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, -e.r); ctx.lineTo(0, -e.r - 16); ctx.stroke();
+      ctx.fillStyle = "#ffd166";
+      ctx.beginPath(); ctx.moveTo(0, -e.r - 16); ctx.lineTo(12, -e.r - 12); ctx.lineTo(0, -e.r - 8); ctx.closePath(); ctx.fill();
+    }
+    // tentacle: rooted spike crown
+    if (e.kind === "tentacle") {
+      ctx.strokeStyle = e.color; ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        const an = i / 8 * Math.PI * 2 + Math.sin(game.time * 2 + i) * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(an) * e.r * 0.7, Math.sin(an) * e.r * 0.7);
+        ctx.lineTo(Math.cos(an) * (e.r + 8), Math.sin(an) * (e.r + 8));
+        ctx.stroke();
+      }
+    }
+    // drone: buzzing wings
+    if (e.kind === "drone") {
+      const flap = Math.sin(game.time * 24) * 5;
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-e.r, -2); ctx.quadraticCurveTo(-e.r - 8, -6 - flap, -e.r - 3, -8 - flap); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(e.r, -2); ctx.quadraticCurveTo(e.r + 8, -6 - flap, e.r + 3, -8 - flap); ctx.stroke();
+    }
+    // elite modifier marker: a gold spark orbits every elite foe
+    if (e.eliteMod && !e.isBoss) {
+      const ea = game.time * 3;
+      ctx.fillStyle = e.eliteMod === "AUREATE" ? "#ffd166" : "#ffb45e";
+      ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(Math.cos(ea) * (e.r + 8), Math.sin(ea) * (e.r + 8) * 0.6 - e.r * 0.4, 2.5, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    // WARDING elites + shielded minions: guard dome
+    if (!e.isBoss && e.shieldT > 0) {
+      ctx.globalAlpha = 0.4 + 0.3 * Math.sin(game.time * 16);
+      ctx.strokeStyle = "#e8e8f8";
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, e.r + 7, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     if (e.isBoss) { ctx.shadowColor = e.color; ctx.shadowBlur = 18; }
     ctx.fillStyle = e.color;

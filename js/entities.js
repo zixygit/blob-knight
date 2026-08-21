@@ -15,6 +15,7 @@ class Player {
     this.dashT = 0;      // active dash (i-frames while > 0)
     this.dashCd = 0;     // dash recharge
     this.dashAng = 0;
+    this.vx = 0; this.vy = 0;   // chapter two: velocity sample for predictive foes
   }
 }
 
@@ -63,11 +64,41 @@ class Enemy {
 
   update(dt, game) {
     const p = game.player;
-    this.cooldown = Math.max(0, this.cooldown - dt);
+    this.cooldown = Math.max(0, this.cooldown - dt * (this.eliteMod === "FRANTIC" ? 2 : 1));
     this.hurtT = Math.max(0, this.hurtT - dt);
     /* idea 30: elite mods — regen over time */
     if (this.eliteMod === "REGENERATIVE" && this.hp < this.maxHp) {
       this.hp = Math.min(this.maxHp, this.hp + 1.5 * dt);
+    }
+    /* chapter two: WARDING elites periodically raise a guard window */
+    if (this.eliteMod === "WARDING" && this.kind !== "shielder" && !this.isBoss) {
+      this.wardT = (this.wardT === undefined ? rand(3, 6) : this.wardT) - dt;
+      if (this.wardT <= 0) {
+        this.wardT = 6.5;
+        this.shieldT = 1.2;
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 12, t: 0.4, color: "#c8c8e8" });
+        game.flash(`${this.name} raises its guard!`, "#c8c8e8");
+        game.SFX && game.SFX.shield();
+      }
+    }
+    /* chapter two: mirror echoes expire instead of flooding the arena */
+    if (this.echoTtl !== undefined) {
+      this.echoTtl -= dt;
+      if (this.echoTtl <= 0) { game.killEnemy(this, true); return; }
+    }
+    /* chapter two: banner aura + rally state tick off */
+    if (this.buffedT > 0) this.buffedT -= dt;
+    if (this.lungeT > 0) {
+      this.lungeT -= dt;
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      this.x += Math.cos(ang) * 300 * dt;
+      this.y += Math.sin(ang) * 300 * dt;
+      if (dist(this, p) < this.r + p.r && this.cooldown <= 0) {
+        this.cooldown = 0.9;
+        game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      }
+      this.clamp();
+      return;
     }
 
     if (this.knock > 0) {
@@ -80,7 +111,7 @@ class Enemy {
 
     if (this.isBoss) { this.updateBoss(dt, game); return; }
     /* idea 29: fear — low-HP minions flee briefly */
-    if (this.hp < this.maxHp * 0.25 && this.maxHp > 8 && this.kind !== "shielder" && this.kind !== "guard") {
+    if (this.hp < this.maxHp * 0.25 && this.maxHp > 8 && this.kind !== "shielder" && this.kind !== "guard" && this.kind !== "tentacle") {
       if (this.fearT <= 0 && Math.random() < 0.004) { this.fearT = 1.6; game.flash(`${this.name} flees in fear!`, "#9a90b8"); }
     }
     if (this.fearT > 0) {
@@ -91,6 +122,9 @@ class Enemy {
       this.clamp();
       return;
     }
+    /* chapter two: banner-buffed allies move faster for this frame */
+    const baseSpeed = this.speed;
+    if (this.buffedT > 0) this.speed = Math.round(baseSpeed * 1.3);
     switch (this.kind) {
       case "chaser":   this.behaveChaser(dt, game, p); break;
       case "brute":    this.behaveChaser(dt, game, p); break;
@@ -108,7 +142,18 @@ class Enemy {
       case "sniper":   this.behaveSniper(dt, game, p); break;
       case "swarm":    this.behaveSwarm(dt, game, p); break;
       case "guard":    this.behaveGuard(dt, game, p); break;
+      /* chapter two: the sundered depths */
+      case "acid":      this.behaveAcid(dt, game, p); break;
+      case "drone":     this.behaveDrone(dt, game, p); break;
+      case "assassin":  this.behaveAssassin(dt, game, p); break;
+      case "gazer":     this.behaveGazer(dt, game, p); break;
+      case "berserker": this.behaveBerserker(dt, game, p); break;
+      case "hunter":    this.behaveHunter(dt, game, p); break;
+      case "commander": this.behaveCommander(dt, game, p); break;
+      case "tentacle":  this.behaveTentacle(dt, game, p); break;
+      case "trapper":   this.behaveTrapper(dt, game, p); break;
     }
+    this.speed = baseSpeed;
     this.clamp();
   }
 
@@ -395,6 +440,291 @@ class Enemy {
     this.x += Math.cos(this.patrolDir || 1) * this.speed * 0.5 * dt;
   }
 
+  /* ---------- chapter two: the sundered depths ---------- */
+
+  /* acid: kites and lobs globs that splash into corrosive pools — the floor is the weapon */
+  behaveAcid(dt, game, p) {
+    this.dodgeIncoming(dt, game);
+    const d = Math.max(1, dist(this, p));
+    const want = 200;
+    if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.7 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.7 * dt; }
+    else if (d > want + 40) { this.x += (p.x - this.x) / d * this.speed * dt; this.y += (p.y - this.y) / d * this.speed * dt; }
+    if (this.cooldown <= 0) {
+      this.cooldown = this.fireCd || 3.2;
+      const pr = this.proj || { speed: 210, r: 7, color: "#a8e05a", dmg: [4, 7], pool: { r: 42, life: 3, dps: 8 } };
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      const shot = new Projectile("enemy", this.x, this.y,
+        Math.cos(ang) * pr.speed, Math.sin(ang) * pr.speed,
+        pr.r, rand(pr.dmg[0], pr.dmg[1]), pr.color, { pool: pr.pool || null });
+      shot.ttl = Math.min(shot.ttl, 1.0);   // globs fall short and splash
+      game.projectiles.push(shot);
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: 10, t: 0.25, color: pr.color });
+    }
+  }
+
+  /* drone: orbits the player, strafes bursts, flips orbit when aimed at */
+  behaveDrone(dt, game, p) {
+    if (this.orbDir === undefined) { this.orbDir = Math.random() < 0.5 ? 1 : -1; this.orbT = rand(2, 4); }
+    this.orbT -= dt;
+    if (this.orbT <= 0) { this.orbT = rand(2, 4); this.orbDir = -this.orbDir; }   // repositions dynamically
+    const d = Math.max(1, dist(this, p));
+    const want = 230;
+    const toP = Math.atan2(p.y - this.y, p.x - this.x);
+    const tangent = toP + Math.PI / 2 * this.orbDir;
+    let mx = Math.cos(tangent), my = Math.sin(tangent);
+    if (d < want - 30) { mx -= Math.cos(toP) * 1.2; my -= Math.sin(toP) * 1.2; }
+    else if (d > want + 30) { mx += Math.cos(toP) * 1.2; my += Math.sin(toP) * 1.2; }
+    /* skitter when the player takes aim — it never sits still under fire */
+    this.dodgeT = Math.max(0, (this.dodgeT || 0) - dt);
+    let diff = Math.abs(toP - p.dir + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+    if (Math.abs(diff) < 0.5 && d < 320 && this.dodgeT <= 0) {
+      this.dodgeT = 1.2;
+      this.orbDir = -this.orbDir;
+      mx += Math.cos(toP) * 2; my += Math.sin(toP) * 2;
+    }
+    const len = Math.hypot(mx, my) || 1;
+    this.x += mx / len * this.speed * dt;
+    this.y += my / len * this.speed * dt;
+    if (this.cooldown <= 0) {
+      this.cooldown = this.fireCd || 2.9;
+      this.burst = 2; this.burstT = 0;
+    }
+    if (this.burst > 0) {
+      this.burstT -= dt;
+      if (this.burstT <= 0) {
+        this.burstT = 0.16;
+        this.burst--;
+        const pr = this.proj || { speed: 300, r: 4, color: "#a8d8e8", dmg: [5, 8] };
+        const ang = Math.atan2(p.y - this.y, p.x - this.x) + rand(-6, 6) / 100;
+        game.projectiles.push(new Projectile("enemy", this.x, this.y,
+          Math.cos(ang) * pr.speed, Math.sin(ang) * pr.speed, pr.r, rand(pr.dmg[0], pr.dmg[1]), pr.color));
+      }
+    }
+  }
+
+  /* assassin: circles → vanishes → reappears behind you (telegraphed) → 3-slash combo → retreats */
+  behaveAssassin(dt, game, p) {
+    if (!this.aState) { this.aState = "stalk"; this.atkT = rand(1.5, this.teleCd || 5); }
+    if (this.aState === "stalk") {
+      const d = Math.max(1, dist(this, p));
+      const toP = Math.atan2(p.y - this.y, p.x - this.x);
+      const tangent = toP + Math.PI / 2;
+      let mx = Math.cos(tangent), my = Math.sin(tangent);
+      if (d < 200) { mx -= Math.cos(toP); my -= Math.sin(toP); }
+      else if (d > 240) { mx += Math.cos(toP); my += Math.sin(toP); }
+      const len = Math.hypot(mx, my) || 1;
+      this.x += mx / len * this.speed * dt;
+      this.y += my / len * this.speed * dt;
+      this.atkT -= dt;
+      if (this.atkT <= 0) {
+        this.aState = "vanish"; this.vT = 0.7; this.phased = true;
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+        game.flash(`${this.name} melts into shadow...`, "#b06fd4");
+      }
+      return;
+    }
+    if (this.aState === "vanish") {
+      this.vT -= dt;
+      if (this.vT <= 0) {
+        const behind = p.dir + Math.PI;
+        this.x = clamp(p.x + Math.cos(behind) * 52, CFG.MARGIN, CFG.W - CFG.MARGIN);
+        this.y = clamp(p.y + Math.sin(behind) * 52, CFG.MARGIN, CFG.H - CFG.MARGIN);
+        this.phased = false;
+        this.aState = "mark"; this.mT = 0.55;
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: 26, t: 0.55, color: "#ff2a6a" });
+        game.SFX && game.SFX.teleport();
+      }
+      return;
+    }
+    if (this.aState === "mark") {
+      this.mT -= dt;   // the red ring is your warning — move
+      if (this.mT <= 0) { this.aState = "combo"; this.slashes = 3; this.sT = 0; }
+      return;
+    }
+    if (this.aState === "combo") {
+      this.sT -= dt;
+      if (this.sT <= 0) {
+        this.sT = 0.22;
+        this.slashes--;
+        const ang = Math.atan2(p.y - this.y, p.x - this.x);
+        this.x += Math.cos(ang) * 70;
+        this.y += Math.sin(ang) * 70;
+        game.arcs = game.arcs || [];
+        game.arcs.push({ ang, t: 0.2 });
+        if (dist(this, p) < this.r + p.r + 10) game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+        SFX.hit();
+        if (this.slashes <= 0) { this.aState = "flee"; this.fT = 0.5; }
+      }
+      return;
+    }
+    /* flee: dash away, then back to stalking */
+    this.fT -= dt;
+    const away = Math.atan2(this.y - p.y, this.x - p.x);
+    this.x += Math.cos(away) * 320 * dt;
+    this.y += Math.sin(away) * 320 * dt;
+    if (this.fT <= 0) { this.aState = "stalk"; this.atkT = this.teleCd || 5; }
+  }
+
+  /* gazer: drifts, then charges a beam — tracks early, locks late, sweeps nothing: sidestep it */
+  behaveGazer(dt, game, p) {
+    if (this.gazeCharge > 0) {
+      this.gazeCharge -= dt;
+      if (this.gazeCharge > (this.gazeLock || 0.5)) this.aimAng = Math.atan2(p.y - this.y, p.x - this.x);
+      if (this.gazeCharge <= 0) {
+        const range = this.gazeRange || 340;
+        game.effects.push({ type: "beam", x1: this.x, y1: this.y, x2: this.x + Math.cos(this.aimAng) * range, y2: this.y + Math.sin(this.aimAng) * range, t: 0.25, color: "#d4a8ff" });
+        game.shake = Math.max(game.shake, 0.12);
+        SFX.boom();
+        let dAng = Math.abs(Math.atan2(p.y - this.y, p.x - this.x) - this.aimAng + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+        if (dist(this, p) < range && Math.abs(dAng) < 0.08) game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      }
+      return;
+    }
+    this.dodgeIncoming(dt, game);
+    const d = Math.max(1, dist(this, p));
+    const want = 280;
+    if (d < want - 60) { this.x -= (p.x - this.x) / d * this.speed * 0.6 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.6 * dt; }
+    else if (d > want + 60) { this.x += (p.x - this.x) / d * this.speed * dt; this.y += (p.y - this.y) / d * this.speed * dt; }
+    this.gazeT = (this.gazeT === undefined ? rand(1.5, this.gazeCd || 4.5) : this.gazeT) - dt;
+    if (this.gazeT <= 0 && dist(this, p) < (this.gazeRange || 340)) {
+      this.gazeT = this.gazeCd || 4.5;
+      this.gazeCharge = 1.3;
+      this.gazeLock = 0.5;   // aim locks in the last half-second — that's the dodge window
+      this.aimAng = Math.atan2(p.y - this.y, p.x - this.x);
+      game.flash(`${this.name} focuses its gaze!`, "#d4a8ff");
+    }
+  }
+
+  /* berserker: rages harder at 66% and 33% HP — the roar pause is the opening */
+  behaveBerserker(dt, game, p) {
+    if (this.rageStage === undefined) this.rageStage = 0;
+    if (this.roarT > 0) { this.roarT -= dt; return; }
+    const frac = this.hp / this.maxHp;
+    if (this.rageStage < 1 && frac < 0.66) this.enterRage(game, 1);
+    else if (this.rageStage < 2 && frac < 0.33) this.enterRage(game, 2);
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    const sp = this.speed * (1 + this.rageStage * 0.4);
+    this.x += Math.cos(ang) * sp * dt;
+    this.y += Math.sin(ang) * sp * dt;
+    if (dist(this, p) < this.r + p.r && this.cooldown <= 0) {
+      this.cooldown = [0.9, 0.6, 0.4][this.rageStage];
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+    }
+  }
+  enterRage(game, stage) {
+    this.rageStage = stage;
+    this.roarT = 0.6;
+    game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 18, t: 0.6, color: "#ff5a2a" });
+    game.flash(`${this.name} ${stage === 1 ? "SNARLS" : "GOES BERSERK"}!`, "#ff5a2a");
+    game.shake = Math.max(game.shake, 0.15);
+    SFX.boss();
+  }
+
+  /* hunter: strikes where you're GOING — the orange ring marks the predicted spot */
+  behaveHunter(dt, game, p) {
+    if (this.hDashT > 0) {
+      this.hDashT -= dt;
+      this.x += Math.cos(this.hDashAng) * 520 * dt;
+      this.y += Math.sin(this.hDashAng) * 520 * dt;
+      if (dist(this, p) < this.r + p.r) {
+        game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+        this.hDashT = 0;
+      }
+      return;
+    }
+    if (this.markT > 0) {
+      this.markT -= dt;
+      if (this.markT <= 0) {
+        this.hDashAng = Math.atan2(this.markY - this.y, this.markX - this.x);
+        this.hDashT = 0.42;
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.25 });
+      }
+      return;
+    }
+    const d = Math.max(1, dist(this, p));
+    const toP = Math.atan2(p.y - this.y, p.x - this.x);
+    const tangent = toP + Math.PI / 2 * (this.hDir || 1);
+    let mx = Math.cos(tangent), my = Math.sin(tangent);
+    if (d < 200) { mx -= Math.cos(toP) * 1.4; my -= Math.sin(toP) * 1.4; }
+    else if (d > 260) { mx += Math.cos(toP) * 1.4; my += Math.sin(toP) * 1.4; }
+    const len = Math.hypot(mx, my) || 1;
+    this.x += mx / len * this.speed * dt;
+    this.y += my / len * this.speed * dt;
+    this.huntT = (this.huntT === undefined ? rand(1.5, this.huntCd || 3.6) : this.huntT) - dt;
+    if (this.huntT <= 0 && d < 340) {
+      this.huntT = this.huntCd || 3.6;
+      this.hDir = -(this.hDir || 1);
+      this.markX = clamp(p.x + (p.vx || 0) * 0.55, CFG.MARGIN, CFG.W - CFG.MARGIN);
+      this.markY = clamp(p.y + (p.vy || 0) * 0.55, CFG.MARGIN, CFG.H - CFG.MARGIN);
+      this.markT = 0.7;
+      game.effects.push({ type: "ring", x: this.markX, y: this.markY, r: 22, t: 0.7, color: "#ff8b3d" });
+      game.flash(`${this.name} marks your path!`, "#e8a83d");
+    }
+  }
+
+  /* commander: banner aura speeds nearby foes; the rally drives them all into a charge */
+  behaveCommander(dt, game, p) {
+    for (const o of game.enemies) {
+      if (o === this || o.dead || o.isBoss) continue;
+      if (dist(this, o) < 150) o.buffedT = 0.2;
+    }
+    this.rallyT = (this.rallyT === undefined ? rand(2.5, this.rallyCd || 7) : this.rallyT) - dt;
+    if (this.rallyT <= 0) {
+      this.rallyT = this.rallyCd || 7;
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: 220, t: 0.6, color: "#ffd166" });
+      game.flash(`${this.name} sounds the rally!`, "#ffd166");
+      game.SFX && game.SFX.boss();
+      for (const o of game.enemies) {
+        if (o === this || o.dead || o.isBoss || o.kind === "tentacle") continue;
+        if (dist(this, o) < 220) o.lungeT = Math.max(o.lungeT || 0, 0.35);
+      }
+    }
+    this.behaveChaser(dt, game, p);
+  }
+
+  /* tentacle: rooted rift-limb — slams telegraphed zones, carving up the arena */
+  behaveTentacle(dt, game, p) {
+    if (this.slam) {
+      this.slam.t -= dt;
+      if (Math.random() < 0.3) game.effects.push({ type: "spark", x: this.slam.x + (Math.random() - 0.5) * 60, y: this.slam.y + (Math.random() - 0.5) * 60, vx: 0, vy: -rand(20, 60), t: 0.25, color: this.color });
+      if (this.slam.t <= 0) {
+        const s = this.slam;
+        this.slam = null;
+        game.effects.push({ type: "boom", x: s.x, y: s.y, t: 0.4 });
+        game.shake = Math.max(game.shake, 0.15);
+        SFX.boom();
+        if (dist({ x: s.x, y: s.y }, p) < s.r + p.r) game.damagePlayer(rand(this.dmg[0], this.dmg[1]), s.x, s.y);
+      }
+      return;
+    }
+    this.slamT = (this.slamT === undefined ? rand(1, this.slamCd || 3.8) : this.slamT) - dt;
+    if (this.slamT <= 0) {
+      this.slamT = this.slamCd || 3.8;
+      this.slam = { x: clamp(p.x + rand(-40, 40), CFG.MARGIN, CFG.W - CFG.MARGIN), y: clamp(p.y + rand(-40, 40), CFG.MARGIN, CFG.H - CFG.MARGIN), r: 58, t: 0.9 };
+      game.effects.push({ type: "ring", x: this.slam.x, y: this.slam.y, r: 58, t: 0.9, color: this.color });
+    }
+  }
+
+  /* trapper: lobs silk that sticks to the ground — webs slow you into everyone else's attacks */
+  behaveTrapper(dt, game, p) {
+    this.dodgeIncoming(dt, game);
+    const d = Math.max(1, dist(this, p));
+    const want = 240;
+    if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.7 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.7 * dt; }
+    else if (d > want + 40) { this.x += (p.x - this.x) / d * this.speed * dt; this.y += (p.y - this.y) / d * this.speed * dt; }
+    if (this.cooldown <= 0) {
+      this.cooldown = this.fireCd || 3.5;
+      const pr = this.proj || { speed: 260, r: 6, color: "#e8e8f8", dmg: [3, 6], pool: { r: 46, life: 4, dps: 0, web: true, color: "#c8c8d8" } };
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      const shot = new Projectile("enemy", this.x, this.y,
+        Math.cos(ang) * pr.speed, Math.sin(ang) * pr.speed,
+        pr.r, rand(pr.dmg[0], pr.dmg[1]), pr.color, { pool: pr.pool || null });
+      shot.ttl = Math.min(shot.ttl, 0.85);
+      game.projectiles.push(shot);
+    }
+  }
+
   /* ---------- boss AI: chase + volley + radial + spiral + summon + enrages ---------- */
   updateBoss(dt, game) {
     const p = game.player;
@@ -447,27 +777,31 @@ class Enemy {
       game.SFX && game.SFX.boss();
     }
     const mult = this.enraged2 ? 0.5 : this.enraged ? 0.65 : 1;
+    /* chapter two: phase-gated kits — patterns may declare `from: 2/3` so
+       bosses escalate by UNLOCKING mechanics, not just attacking faster */
+    const phase = this.enraged2 ? 3 : this.enraged ? 2 : 1;
+    const ready = c => !c.from || phase >= c.from;
 
     this.volleyT -= dt;
-    if (b.volley && this.volleyT <= 0) {
+    if (b.volley && ready(b.volley) && this.volleyT <= 0) {
       this.volleyT = (b.volleyCd || 2.4) * mult;
       game.bossVolley(this, b.volley);
     }
-    if (b.radial) {
+    if (b.radial && ready(b.radial)) {
       this.radialT -= dt;
       if (this.radialT <= 0) {
         this.radialT = (b.radialCd || 3.5) * mult;
         game.bossRadial(this, b.radial);
       }
     }
-    if (b.summon) {
+    if (b.summon && ready(b.summon)) {
       this.bossSumT -= dt;
       if (this.bossSumT <= 0) {
         this.bossSumT = b.summon.cd * mult;
         game.bossSummon(this, b.summon);
       }
     }
-    if (b.spiral) {
+    if (b.spiral && ready(b.spiral)) {
       this.spiralT -= dt;
       if (this.spiralT <= 0) {
         this.spiralT = b.spiral.step * mult;
@@ -476,7 +810,7 @@ class Enemy {
       }
     }
     /* idea 34: laser sweep */
-    if (b.laser) {
+    if (b.laser && ready(b.laser)) {
       this.laserT = (this.laserT || 0) - dt;
       if (this.laserT <= 0) {
         this.laserT = b.laser.cd * mult;
@@ -497,7 +831,7 @@ class Enemy {
       }
     }
     /* idea 34: ground AOE zones */
-    if (b.aoe) {
+    if (b.aoe && ready(b.aoe)) {
       this.aoeT = (this.aoeT || 0) - dt;
       if (this.aoeT <= 0) {
         this.aoeT = b.aoe.cd * mult;
@@ -681,12 +1015,103 @@ class Enemy {
         }
         break;
       }
+      /* VOLDRIC / AZHAROTH: sky strikes — telegraphed bolts on your position */
+      case "lightning": {
+        this.boltT = (this.boltT || 0) - dt;
+        if (this.boltT <= 0) {
+          this.boltT = b.mechCd || 5;
+          const n = this.enraged2 ? 3 : this.enraged ? 2 : 1;
+          game.flash(`${this.name} calls down the storm!`, "#ffd166");
+          game.SFX && game.SFX.boss();
+          for (let i = 0; i < n; i++) {
+            const zx = clamp(p.x + rand(-70, 70) + i * 45 - n * 22, CFG.MARGIN, CFG.W - CFG.MARGIN);
+            const zy = clamp(p.y + rand(-70, 70) + i * 35 - n * 17, CFG.MARGIN, CFG.H - CFG.MARGIN);
+            game.G.aoeZones.push({ x: zx, y: zy, r: 52, t: 0.8, max: 0.8, dmg: [9, 13], color: "#ffd166" });
+            game.effects.push({ type: "ring", x: zx, y: zy, r: 52, t: 0.8, color: "#ffd166" });
+          }
+        }
+        break;
+      }
+      /* ORUN: forge vents — staggered bursts plus lingering heat pools shrink the arena */
+      case "vents": {
+        this.ventT = (this.ventT || 0) - dt;
+        if (this.ventT <= 0) {
+          this.ventT = b.mechCd || 6.5;
+          game.flash(`${this.name} stokes the forge!`, "#ffb45e");
+          game.shake = Math.max(game.shake, 0.2);
+          for (let i = 0; i < 4; i++) {
+            const zx = rand(CFG.MARGIN + 20, CFG.W - CFG.MARGIN - 20);
+            const zy = rand(CFG.MARGIN + 20, CFG.H - CFG.MARGIN - 20);
+            game.G.aoeZones.push({ x: zx, y: zy, r: 64, t: 0.9 + i * 0.25, max: 0.9, dmg: [9, 13], color: "#ffb45e" });
+            game.effects.push({ type: "ring", x: zx, y: zy, r: 64, t: 0.9 + i * 0.25, color: "#ffb45e" });
+          }
+          if (typeof spawnHazardZone === "function") {
+            for (let i = 0; i < 2; i++) {
+              spawnHazardZone(rand(CFG.MARGIN + 40, CFG.W - CFG.MARGIN - 40), rand(CFG.MARGIN + 40, CFG.H - CFG.MARGIN - 40),
+                { r: 44, life: 4, dps: 7, color: "#ff8b3d" });
+            }
+          }
+        }
+        break;
+      }
+      /* VESPERA: mirror echoes — temporary clones that volley, then shatter on their own */
+      case "clones": {
+        this.cloneT = (this.cloneT || 0) - dt;
+        if (this.cloneT <= 0) {
+          this.cloneT = (b.mechCd || 6) * 1.6;
+          game.flash(`${this.name} shatters into echoes!`, "#c0a8f0");
+          for (let i = 0; i < 2; i++) {
+            const def = Object.assign({}, ENEMY_TYPES.shooter, {
+              name: "GLASS ECHO", hp: 26, r: 11, speed: 110, dmg: [4, 7], color: "#c0a8f0",
+              fireCd: 1.8, proj: { speed: 300, r: 5, color: "#c0a8f0", dmg: [5, 8] },
+            });
+            const ang = Math.random() * Math.PI * 2;
+            const e = new Enemy(def,
+              clamp(this.x + Math.cos(ang) * 60, CFG.MARGIN, CFG.W - CFG.MARGIN),
+              clamp(this.y + Math.sin(ang) * 60, CFG.MARGIN, CFG.H - CFG.MARGIN));
+            e.summoned = true;   // echoes don't count toward the clear
+            e.echoTtl = 9;       // ...and can't flood the arena
+            game.enemies.push(e);
+            game.effects.push({ type: "boom", x: e.x, y: e.y, t: 0.3 });
+          }
+          game.SFX && game.SFX.teleport();
+        }
+        break;
+      }
+      /* AZHAROTH: emberfall — a marching wall of strikes chasing across the arena */
+      case "emberfall": {
+        this.fallT = (this.fallT || 0) - dt;
+        if (this.fallT <= 0) {
+          this.fallT = b.mechCd || 5.5;
+          game.flash(`${this.name} rains the EMBERFALL!`, "#ff5a2a");
+          game.shake = Math.max(game.shake, 0.2);
+          const ang = Math.atan2(p.y - this.y, p.x - this.x);
+          for (let i = 1; i <= 6; i++) {
+            const zx = clamp(this.x + Math.cos(ang) * i * 90 + rand(-30, 30), CFG.MARGIN, CFG.W - CFG.MARGIN);
+            const zy = clamp(this.y + Math.sin(ang) * i * 90 + rand(-30, 30), CFG.MARGIN, CFG.H - CFG.MARGIN);
+            game.G.aoeZones.push({ x: zx, y: zy, r: 56, t: 0.5 + i * 0.22, max: 0.5, dmg: [10, 14], color: "#ff8b3d" });
+            game.effects.push({ type: "ring", x: zx, y: zy, r: 56, t: 0.5 + i * 0.22, color: "#ff8b3d" });
+          }
+        }
+        break;
+      }
     }
   }
 }
 
 /* ---------- projectiles (player bolts & enemy shots) ----------
    opts: { slow: seconds, boom: bool, boomR: px } */
+function sweptHit(ax, ay, bx, by, r, ex, ey, er){
+  const cr = r + er;
+  const abx = bx - ax, aby = by - ay;
+  const aex = ex - ax, aey = ey - ay;
+  const abLen2 = abx*abx + aby*aby;
+  if (abLen2 === 0) return Math.hypot(aex, aey) < cr;
+  let t = (aex*abx + aey*aby) / abLen2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + abx*t, cy = ay + aby*t;
+  return Math.hypot(ex - cx, ey - cy) < cr;
+}
 class Projectile {
   constructor(team, x, y, vx, vy, r, dmg, color, opts) {
     this.team = team;
@@ -703,8 +1128,15 @@ class Projectile {
     this.bomb = !!(opts && opts.bomb);             // idea 52
     this.fuse = (opts && opts.fuse) || 0;
     this.hitSet = new Set();
+    this.px = x; this.py = y; // previous pos for swept
+  }
+  /* chapter two: acid globs / webs splash into a lingering floor zone when they land */
+  splash(game) {
+    if (!this.pool || typeof spawnHazardZone !== "function") return;
+    spawnHazardZone(clamp(this.x, CFG.MARGIN, CFG.W - CFG.MARGIN), clamp(this.y, CFG.MARGIN, CFG.H - CFG.MARGIN), this.pool);
   }
   update(dt, game) {
+    const prevX = this.x, prevY = this.y;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     /* idea 50: boomerang returns after a moment */
@@ -734,7 +1166,14 @@ class Projectile {
     // God Run perk 3: Sword Bounce — player projectiles bounce
     const canBounce = G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(3) && this.team === "player";
     if (this.x < 0 || this.x > CFG.W || this.y < 0 || this.y > CFG.H) {
-      if (canBounce && this.ttl > 0.5) {
+      if (this.bounce > 0 && this.team === "enemy") {
+        /* chapter two: glass shards ricochet — corners stop being safe */
+        if (this.x < 0 || this.x > CFG.W) this.vx = -this.vx;
+        if (this.y < 0 || this.y > CFG.H) this.vy = -this.vy;
+        this.x = clamp(this.x, 0, CFG.W);
+        this.y = clamp(this.y, 0, CFG.H);
+        this.bounce--;
+      } else if (canBounce && this.ttl > 0.5) {
         if (this.x < 0 || this.x > CFG.W) this.vx = -this.vx * 0.95;
         if (this.y < 0 || this.y > CFG.H) this.vy = -this.vy * 0.95;
         this.x = clamp(this.x, 0, CFG.W);
@@ -747,7 +1186,10 @@ class Projectile {
         }
       } else this.ttl = 0;
     }
-    if (this.ttl <= 0) return true; // remove
+    if (this.ttl <= 0) {
+      if (this.pool) this.splash(game);   // landed: leave the pool behind
+      return true; // remove
+    }
 
     /* idea 52: bomb fuse countdown then area boom */
     if (this.bomb) {
@@ -763,10 +1205,20 @@ class Projectile {
     /* idea 5: trail particles behind projectiles */
     game.effects.push({ type: "trail", x: this.x, y: this.y, t: 0.16, color: this.color, r: this.r });
 
+    // Bomb — explode on enemy contact (swept, immediate)
+    if (this.bomb && this.team === "player") {
+      for (const e of game.enemies) {
+        if (e.isNPC) continue;
+        if (sweptHit(prevX, prevY, this.x, this.y, this.r, e.x, e.y, e.r)) {
+          game.explodePlayer(this.x, this.y, this.boomR, this.boomDmg);
+          return true;
+        }
+      }
+    }
     if (this.team === "player") {
       /* idea 40: projectiles can break crates */
       for (const c of game.crates || []) {
-        if (dist(this, c) < this.r + c.r) {
+        if (sweptHit(prevX, prevY, this.x, this.y, this.r, c.x, c.y, c.r)) {
           c.hp -= Math.max(1, Math.round(this.dmg / 3));
           game.effects.push({ type: "spark", x: this.x, y: this.y, vx: (Math.random() - 0.5) * 100, vy: -rand(40, 120), t: 0.3, color: "#c9b458" });
           if (c.hp <= 0) {
@@ -785,12 +1237,13 @@ class Projectile {
         }
       }
       for (const e of game.enemies) {
-        if (dist(this, e) < this.r + e.r) {
+        if (e.isNPC) continue;
+        if (sweptHit(prevX, prevY, this.x, this.y, this.r, e.x, e.y, e.r)) {
           if (this.boom) {
-            game.explodePlayer(this.x, this.y, this.boomR);
+            game.explodePlayer(this.x, this.y, this.boomR, this.boomDmg);
             return true; // bolt consumed
           }
-          if (this.boomerang) {           // idea 50: hit each enemy once, keep flying
+          if (this.boomerang) {           // idea 50: hit each enemy once, keep flying — swept
             if (this.hitSet.has(e)) continue;
             this.hitSet.add(e);
             const hit = game.playerDamage();
@@ -806,8 +1259,9 @@ class Projectile {
       }
     } else {
       const p = game.player;
-      if (dist(this, p) < this.r + p.r) {
+      if (sweptHit(prevX, prevY, this.x, this.y, this.r, p.x, p.y, p.r)) {
         game.damagePlayer(this.dmg, this.x, this.y, this.slow ? "slow" : null);
+        if (this.pool) this.splash(game);   // hit you: it still splashes
         return true;
       }
     }

@@ -103,7 +103,7 @@ function attackStaff(game) {
   game.lastElement = "fire";   // idea 51
   game.effects.push({ type: "muzzle", x: p.x + Math.cos(p.dir) * 18, y: p.y + Math.sin(p.dir) * 18, dir: p.dir, t: 0.07, color: "#ff8b3d" }); // idea 6
   game.projectiles.push(new Projectile("player", p.x + Math.cos(p.dir) * 16, p.y + Math.sin(p.dir) * 16,
-    Math.cos(p.dir) * speed, Math.sin(p.dir) * speed, 7, dmg, "#ff8b3d", { boom: true, boomR: 64 }));
+    Math.cos(p.dir) * speed, Math.sin(p.dir) * speed, 11, dmg, "#ff8b3d", { boom: true, boomR: 88 }));
   if (G.passiveStaff) {   // idea 49: staff leaves burning ground
     game.burnZones = game.burnZones || [];
     game.burnZones.push({ x: p.x + Math.cos(p.dir) * 40, y: p.y + Math.sin(p.dir) * 40, t: 2.5, r: 40 });

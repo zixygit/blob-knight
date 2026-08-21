@@ -65,6 +65,7 @@ const game = {
   enemies: [],
   projectiles: [],   // player bolts + enemy shots
   waves: [],         // wave blade shockwaves
+  hazardZones: [],   // chapter two: acid pools, silk webs, forge heat
   loot: G.loot,
   effects: [],
   arcs: [],          // idea 7: slash afterimages
@@ -130,6 +131,47 @@ addEventListener("contextmenu", e => {
 });
 
 /* ---------- level setup ---------- */
+/* chapter two: shared minion spawner — used by level setup AND wave reinforcements */
+function spawnMinionList(list) {
+  for (const m of list) {
+    const base = Object.assign({}, ENEMY_TYPES[m.type], m);
+    for (let i = 0; i < (m.count || 1); i++) {
+      let x, y;
+      do {
+        x = rand(60, CFG.W - 60);
+        y = rand(60, CFG.H - 60);
+      } while (dist({ x, y }, game.player) < 100);
+      const def = Object.assign({}, base);
+      /* idea 30: elite rolls — any enemy can spawn elite with a modifier + guaranteed loot.
+         chapter two: level defs may force a specific elite (named mini-boss hunts). */
+      const forced = m.elite && ELITE_MODS.find(mo => mo.name === m.elite);
+      if (forced) {
+        forced.apply(def);
+        def.eliteMod = forced.name;
+        def.hp = Math.round(def.hp * 1.5);
+        def.r += 3;
+        def.name = (m.name || "FOE") + " " + forced.name;
+      } else if (m.type !== "guard" && Math.random() < 0.12) {
+        const mod = ELITE_MODS[rand(0, ELITE_MODS.length - 1)];
+        mod.apply(def);
+        def.eliteMod = mod.name;
+        def.hp = Math.round(def.hp * 1.5);
+        def.r += 3;
+        def.name = (m.name || "FOE") + " " + mod.name;
+      }
+      /* idea 59/60: difficulty + New Game+ scaling */
+      const diff = DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal;
+      if (diff.mult > 1) def.hp = Math.round(def.hp * (1 + (diff.mult - 1) * 0.5));
+      if (G.ngPlus) { def.hp = Math.round(def.hp * 1.4); def.speed = Math.round(def.speed * 1.1); }
+      const e = new Enemy(def, x, y);
+      if (m.proj) e.proj = m.proj;
+      game.enemies.push(e);
+      seeEnemy(e.kind);   // idea 63: bestiary tracking
+      game.G.minionsLeft++;
+    }
+  }
+}
+
 function setupLevel(n) {
   G.level = n;
   const L = LEVELS[n];
@@ -149,7 +191,10 @@ game.arcs = [];
 game.G.bossSpawned = false;
   game.G.minionsLeft = 0;
   game.G.aoeZones = [];
+  game.hazardZones = [];        /* chapter two: acid pools, silk webs, forge heat */
   G.branchChosen = false;
+  G.levelWaves = null;          /* chapter two: multi-wave encounters */
+  G.waveIdx = 0;
 
   /* ideas 39-48: build the world (obstacles, hazards, traps, crates, shrine) */
   const world = buildWorld(n, G.runSeed || (G.level * 7919 + 13));
@@ -165,17 +210,49 @@ game.G.bossSpawned = false;
         const lvl = parseInt(key.split(":")[0]);
         const bossDef = LEVELS[lvl] ? LEVELS[lvl].boss : null;
         if (bossDef) {
-          const npc = new Enemy(Object.assign({}, bossDef, { name: bossDef.name + " (Ally)", isBoss: false, hp: 1, maxHp: 1, speed: 0 }), world.shrine ? world.shrine.x + rand(-60,60) : rand(120, CFG.W-120), world.shrine ? world.shrine.y + rand(-40,40) : rand(120, CFG.H-120));
+          // NPC size: 55% of boss, but keep boss version unchanged
+          const npcR = Math.max(10, Math.round(bossDef.r * 0.55));
+          const npc = new Enemy(Object.assign({}, bossDef, { name: bossDef.name + " (Ally)", isBoss: false, hp: 1, maxHp: 1, speed: 55, r: npcR, color: bossDef.color }), world.shrine ? world.shrine.x + rand(-60,60) : rand(120, CFG.W-120), world.shrine ? world.shrine.y + rand(-40,40) : rand(120, CFG.H-120));
           npc.isNPC = true;
           npc.npcName = bossDef.name;
           npc.originalColor = bossDef.color;
-          // NPC behavior: idle, no attack, recognizable but friendly
-          const origUpdate = npc.update.bind(npc);
+          npc.originalR = bossDef.r;
+          // NPC behavior: idle → wander → stop → idle (believable, not random)
+          npc.npcState = "idle";
+          npc.npcTimer = rand(1, 2);
+          npc.npcDir = Math.random() * Math.PI * 2;
           npc.update = function(dt, game) {
             this.hurtT = Math.max(0, this.hurtT - dt);
-            // gentle bobbing
-            this.y += Math.sin(game.time * 1.5 + this.x) * 0.15;
-            // never attack, just idle
+            this.npcTimer -= dt;
+            if (this.npcState === "idle") {
+              // gentle bobbing, no move
+              this.y += Math.sin(game.time * 1.2 + this.x) * 0.12;
+              if (this.npcTimer <= 0) {
+                this.npcState = "wander";
+                this.npcTimer = rand(1, 2);
+                this.npcDir = Math.random() * Math.PI * 2;
+                // slight telegraph before moving
+                game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 4, t: 0.25, color: this.color });
+              }
+            } else if (this.npcState === "wander") {
+              this.x += Math.cos(this.npcDir) * this.speed * 0.7 * dt;
+              this.y += Math.sin(this.npcDir) * this.speed * 0.7 * dt;
+              this.clamp();
+              // avoid player and obstacles
+              if (dist(this, game.player) < 50) {
+                this.npcDir += Math.PI;
+              }
+              if (this.npcTimer <= 0) {
+                this.npcState = "stop";
+                this.npcTimer = rand(0.6, 1.2);
+              }
+            } else if (this.npcState === "stop") {
+              if (this.npcTimer <= 0) {
+                this.npcState = "idle";
+                this.npcTimer = rand(1.5, 2.5);
+              }
+            }
+            // never hostile — no damage, no attack
           };
           npc.clamp = function(){ this.x = clamp(this.x, CFG.MARGIN, CFG.W - CFG.MARGIN); this.y = clamp(this.y, CFG.MARGIN, CFG.H - CFG.MARGIN); };
           game.enemies.push(npc);
@@ -202,35 +279,10 @@ game.G.bossSpawned = false;
     return;
   }
 
-  for (const m of L.minions) {
-    const base = Object.assign({}, ENEMY_TYPES[m.type], m);
-    for (let i = 0; i < (m.count || 1); i++) {
-      let x, y;
-      do {
-        x = rand(60, CFG.W - 60);
-        y = rand(60, CFG.H - 60);
-      } while (dist({ x, y }, game.player) < 100);
-      const def = Object.assign({}, base);
-      /* idea 30: elite rolls — any enemy can spawn elite with a modifier + guaranteed loot */
-      if (m.type !== "guard" && Math.random() < 0.12) {
-        const mod = ELITE_MODS[rand(0, ELITE_MODS.length - 1)];
-        mod.apply(def);
-        def.eliteMod = mod.name;
-        def.hp = Math.round(def.hp * 1.5);
-        def.r += 3;
-        def.name = (m.name || "FOE") + " " + mod.name;
-      }
-      /* idea 59/60: difficulty + New Game+ scaling */
-      const diff = DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal;
-      if (diff.mult > 1) def.hp = Math.round(def.hp * (1 + (diff.mult - 1) * 0.5));
-      if (G.ngPlus) { def.hp = Math.round(def.hp * 1.4); def.speed = Math.round(def.speed * 1.1); }
-      const e = new Enemy(def, x, y);
-      if (m.proj) e.proj = m.proj;
-      game.enemies.push(e);
-      seeEnemy(e.kind);   // idea 63: bestiary tracking
-      game.G.minionsLeft++;
-    }
-  }
+  /* chapter two: multi-wave encounters — wave 1 now, reinforcements as each falls */
+  G.levelWaves = L.waves || null;
+  G.waveIdx = 0;
+  spawnMinionList(L.waves ? L.waves[0] : (L.minions || []));
   flash(`LEVEL ${n}/${MAX_LEVEL}: ${L.name} — slay all foes`, "#9a90b8");
   renderHUD();
   saveGame();
@@ -245,6 +297,13 @@ const BOSS_TAUNTS = [
   "The crypts have been hungry for a century.",
   "Molten gods spit at your kind.",
   "We are the shadow at the end of all flames.",
+  /* chapter two: the sundered depths */
+  "The maw is patient. The maw is hungry.",
+  "Every shard of me will remember your face.",
+  "The storm already knows where you will stand.",
+  "Iron does not bleed. You will.",
+  "You climbed so deep just to burn.",
+  "I am the first fire. You are kindling.",
 ];
 const DESPERATION_TAUNTS = [
   "IMPOSSIBLE —",
@@ -365,6 +424,11 @@ function hurtEnemy(e, dmg, kx, ky, opts = {}) {
     SFX.hit();
     return;
   }
+  /* chapter two: a phased assassin can't be struck — wait for the red ring */
+  if (e.phased) {
+    game.effects.push({ type: "hit", x: e.x, y: e.y - 12, t: 0.25, txt: "PHASED", color: "#b06fd4" });
+    return;
+  }
   e.hp -= dmg;
   /* idea 51: elemental weakness — +30% damage vs weak enemies */
   const weakness = ELEMENT_WEAKNESS[G.level];
@@ -375,6 +439,15 @@ function hurtEnemy(e, dmg, kx, ky, opts = {}) {
   e.hurtT = 0.12;
   e.knock = opts.knock || 0.2;
   e.kx = kx; e.ky = ky;
+  /* chapter two: FLEETING elites blink away from the blade */
+  if (e.eliteMod === "FLEETING" && !e.isBoss && Math.random() < 0.3) {
+    const a = Math.random() * Math.PI * 2;
+    game.effects.push({ type: "boom", x: e.x, y: e.y, t: 0.3 });
+    e.x = clamp(e.x + Math.cos(a) * 90, CFG.MARGIN, CFG.W - CFG.MARGIN);
+    e.y = clamp(e.y + Math.sin(a) * 90, CFG.MARGIN, CFG.H - CFG.MARGIN);
+    e.knock = 0;
+    game.effects.push({ type: "boom", x: e.x, y: e.y, t: 0.3 });
+  }
   G.hitStop = Math.max(G.hitStop, opts.hitStop || 0.045);      // idea 1: hit-stop freeze
   const dcol = opts.color || (e.isBoss ? "#ff7847" : "#fff");
   game.effects.push({ type: "hit", x: e.x, y: e.y, t: 0.3, txt: dmg, crit: opts.crit, color: dcol });
@@ -455,6 +528,14 @@ function explode(x, y, r, dmg) {
   }
 }
 
+/* chapter two: persistent floor hazards — acid pools burn in pulses, webs drag you slow.
+   Bounded (26 max) so big encounters can't tank the framerate. */
+function spawnHazardZone(x, y, cfg) {
+  game.hazardZones = game.hazardZones || [];
+  game.hazardZones.push({ x, y, r: cfg.r || 40, t: cfg.life || 3, max: cfg.life || 3, dps: cfg.dps || 0, web: !!cfg.web, color: cfg.color || "#8fc04d" });
+  if (game.hazardZones.length > 26) game.hazardZones.shift();
+}
+
 /* ember staff detonation: area damage from player attack */
 function explodePlayer(x, y, r, dmg) {
   game.effects.push({ type: "boom", x, y, t: 0.4 });
@@ -515,6 +596,25 @@ function killEnemy(e, silent) {
     game.effects.push({ type: "shard", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, t: 0.5, color: col });
   }
   if (!silent) { game.effects.push({ type: "boom", x: e.x, y: e.y, t: 0.4 }); SFX.boom(); }
+  /* chapter two: behavior elite mods + acid corpses fight back from the grave */
+  if (!e.isBoss) {
+    if (e.eliteMod === "DEATHBURST") {
+      flash(`${e.name} erupts!`, "#ff8b3d");
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        game.projectiles.push(new Projectile("enemy", e.x, e.y, Math.cos(a) * 240, Math.sin(a) * 240, 5, rand(e.dmg[0], e.dmg[1]), "#ff8b3d"));
+      }
+    }
+    if (e.eliteMod === "AUREATE") {
+      game.G.loot.push(new Pickup("perk", e.x, e.y));
+      game.G.loot.push(new Pickup("gold", e.x + 14, e.y + 6, rand(40, 80)));
+      flash("GILDED FOE — riches spill!", "#ffd166");
+    }
+    if (e.kind === "acid") {
+      spawnHazardZone(e.x, e.y, { r: 40, life: 2.6, dps: 8, color: "#8fc04d" });
+      spawnHazardZone(e.x + rand(-34, 34), e.y + rand(-34, 34), { r: 32, life: 2.2, dps: 6, color: "#8fc04d" });
+    }
+  }
   /* idea 62: stats tracking */
   STATS.kills++;
   if (G.combo > STATS.bestCombo) STATS.bestCombo = G.combo;
@@ -545,7 +645,16 @@ function killEnemy(e, silent) {
   } else if (!e.summoned) {
     game.G.minionsLeft--;
     dropLoot(e.x, e.y, false);
-    if (game.G.minionsLeft <= 0 && !game.G.bossSpawned) spawnBoss();
+    if (game.G.minionsLeft <= 0 && !game.G.bossSpawned) {
+      /* chapter two: wave encounters — reinforcements arrive before the boss */
+      if (G.levelWaves && G.waveIdx < G.levelWaves.length - 1) {
+        G.waveIdx++;
+        flash("⚔ ANOTHER WAVE APPROACHES!", "#ff7847");
+        game.shake = Math.max(game.shake, 0.15);
+        SFX.boss();
+        spawnMinionList(G.levelWaves[G.waveIdx]);
+      } else spawnBoss();
+    }
   } else if (Math.random() < 0.15) {
     game.G.loot.push(new Pickup("gold", e.x, e.y, rand(5, 15)));
   }
@@ -619,13 +728,18 @@ function tryDash() {
 /* ---------- boss attacks ---------- */
 function bossVolley(boss, cfg) {
   const p = game.player;
-  const base = Math.atan2(p.y - boss.y, p.x - boss.x);
+  let base = Math.atan2(p.y - boss.y, p.x - boss.x);
+  /* chapter two: VOLDRIC leads your movement — dodge sideways, not backward */
+  if (cfg.lead) base = Math.atan2(p.y + (p.vy || 0) * 0.35 - boss.y, p.x + (p.vx || 0) * 0.35 - boss.x);
   const spread = cfg.spread || 0.4;
   for (let i = 0; i < cfg.count; i++) {
     const ang = base + (i - (cfg.count - 1) / 2) * spread;
-    game.projectiles.push(new Projectile("enemy", boss.x, boss.y,
+    const shot = new Projectile("enemy", boss.x, boss.y,
       Math.cos(ang) * cfg.speed, Math.sin(ang) * cfg.speed,
-      cfg.r || 7, rand(cfg.dmg[0], cfg.dmg[1]), cfg.color || "#ff8b3d", { slow: cfg.slow || 0 }));
+      cfg.r || 7, rand(cfg.dmg[0], cfg.dmg[1]), cfg.color || "#ff8b3d",
+      { slow: cfg.slow || 0, pool: cfg.pool || null, bounce: cfg.bounce || 0 });
+    if (cfg.pool) shot.ttl = Math.min(shot.ttl, 1.1);   // globs arc down at range and splash
+    game.projectiles.push(shot);
   }
   /* idea 18: EMBERFANG — a volley that scorches the ground where it lands */
   if (cfg.burn) {
@@ -649,7 +763,7 @@ function bossRadial(boss, cfg) {
     const ang = (i / n) * Math.PI * 2;
     game.projectiles.push(new Projectile("enemy", boss.x, boss.y,
       Math.cos(ang) * cfg.speed, Math.sin(ang) * cfg.speed,
-      cfg.r || 6, rand(cfg.dmg[0], cfg.dmg[1]), cfg.color || "#9a90b8"));
+      cfg.r || 6, rand(cfg.dmg[0], cfg.dmg[1]), cfg.color || "#9a90b8", { bounce: cfg.bounce || 0 }));
   }
   flash(`${boss.name} erupts with a ring of fire!`, "#ff5a2a");
 }
@@ -780,8 +894,24 @@ function update(dt) {
     }
   }
 
+  /* chapter two: floor hazards — pools pulse burn, webs drag you slow */
+  for (let i = game.hazardZones.length - 1; i >= 0; i--) {
+    const z = game.hazardZones[i];
+    z.t -= combatDt;
+    const pl = game.player;
+    if (pl && dist(z, pl) < z.r + pl.r * 0.5) {
+      if (z.web) G.slowT = Math.max(G.slowT, 0.5);
+      if (z.dps > 0) {
+        z.tickT = (z.tickT || 0) - combatDt;
+        if (z.tickT <= 0) { z.tickT = 0.55; damagePlayer(Math.max(1, Math.round(z.dps * 0.55)), z.x, z.y); }
+      }
+    }
+    if (z.t <= 0) game.hazardZones.splice(i, 1);
+  }
+
   /* movement: dash overrides input; chill slows */
   const p = game.player;
+  const px0 = p.x, py0 = p.y;   /* chapter two: velocity sample for predictive foes */
   let dx = 0, dy = 0;
   const km = KM();
   if (keys[km.up] || keys["arrowup"]) dy -= 1;
@@ -865,6 +995,10 @@ function update(dt) {
       p.y = ny + dyp / d * (p.r + 1);
     }
   }
+
+  /* chapter two: real velocity — hunters and the Storm Hunter aim where you're GOING */
+  p.vx = combatDt > 0.0001 ? (p.x - px0) / combatDt : 0;
+  p.vy = combatDt > 0.0001 ? (p.y - py0) / combatDt : 0;
 
   /* idea 41: hazard tiles — ice/lava/void */
   for (const h of game.hazards || []) {
@@ -1067,6 +1201,19 @@ function updateBossBar() {
 
 /* ---------- flow ---------- */
 function die() {
+  /* PHOENIX GEM: rise once per run — the artifact finally keeps its promise */
+  if (G.revives > 0) {
+    G.revives--;
+    G.hp = G.maxHp;
+    G.invulnT = 2.5;
+    G.shield = G.shieldMax;
+    flash("🔮 PHOENIX GEM — you rise again!", "#ff8b3d");
+    SFX.levelup && SFX.levelup();
+    game.shake = Math.max(game.shake, 0.3);
+    game.effects.push({ type: "ring", x: game.player.x, y: game.player.y, r: 60, t: 0.8, color: "#ff8b3d" });
+    renderHUD();
+    return;
+  }
   G.phase = "dead";
   STATS.deaths++;
   recordDeath();      /* idea 99: opt-in telemetry */
@@ -1558,7 +1705,7 @@ function resetGame() {
   G.className = cls || "KNIGHT";
   Object.assign(game, { player: null, enemies: [], projectiles: [], waves: [], effects: [], arcs: [], time: 0, shake: 0, weapon: "sword", secondary: null, weapons: ["sword"],
     obstacles: [], hazards: [], traps: [], crates: [], shrine: null,
-    orbits: [], deployables: [], burnZones: [] });
+    orbits: [], deployables: [], burnZones: [], hazardZones: [] });
   rerolled = false;
   G.aoeZones = []; G.dmgTaken = 0; G.slowmoT = 0; G.branchChosen = false;
   function statsRuns() { try { return STATS.runs || 0; } catch (e) { return 0; } }

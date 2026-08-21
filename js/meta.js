@@ -85,6 +85,16 @@ const BESTIARY_LORE = {
   imp: "A fragment of a larger fury—small, sharp, and utterly spiteful. Individually weak, but dangerous in numbers. Swarm targets, nipping and biting until the target weakens or flees. The basic infantry of the underworld forces, bred for combat from the moment of their creation.",
   bone_splitter: "A sinister variant of the bone imp. When destroyed, it splits into two smaller imps, each inheriting its hostility. The name comes from the dual voices that can be heard when it splits—two minds becoming one in death. They laugh in two voices because they are two now, sharing a single purpose.",
   main_lore: "The protagonist's journey: born as a droplet falling from a leaf, gained consciousness upon impact, witnessed a human pack kill passive kin while hiding, saw an aggressive deep-forest slime destroy the humans, realized survival requires devouring what lies beneath, grew by consuming, and now wields a human sword as it descends ever deeper into the dark.",
+  /* chapter two: the sundered depths */
+  acid: "It spits, and where its spit lands, nothing grows for a hundred years. Kill it and it gives the ground one last gift. Keep moving.",
+  drone: "A crystal wasp that never lands. It circles, it watches, and the moment you raise a blade toward it, it is simply elsewhere.",
+  assassin: "You will not hear it. You will see the dust where it stood, then the red ring where it returns. The ring is a promise — step out of it.",
+  gazer: "One enormous eye, lidless and patient. It shows you exactly where its hatred will go — the thin line tracks, the thick line has already decided.",
+  berserker: "Every wound is an argument it wins louder. At two-thirds blood it snarls; at one-third it forgets pain entirely. The roar is your opening.",
+  hunter: "It does not chase where you are. It stalks where you are about to be. Break stride, double back, refuse it the pattern.",
+  commander: "The banner does not fight. The banner makes everything around it braver and faster. Silence the horn first, or face the whole warren at a run.",
+  tentacle: "Something vast beneath the rift flexes, and the ground swells in warning. Nine-tenths of the beast is elsewhere; you fight the tenth you can reach.",
+  trapper: "Its silk does not bite — it merely holds you, politely, for everyone else. The pale patches on the floor are not decorations.",
 };
 function seeEnemy(kind) {
   if (!kind || STATS.seenEnemies[kind]) return;

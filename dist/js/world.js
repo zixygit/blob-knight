@@ -39,7 +39,7 @@ function buildWorld(n, seed) {
   };
 
   /* idea 39: tile rooms — pillars/walls/cover rects */
-  const nOb = n >= 3 ? 4 : 3;
+  const nOb = n >= 12 ? 5 : n >= 3 ? 4 : 3;
   for (let i = 0; i < nOb; i++) {
     let x, y, w, h, tries = 0;
     do {
@@ -51,11 +51,12 @@ function buildWorld(n, seed) {
     ob.push({ x, y, w, h });
   }
 
-  /* idea 41: themed hazard tiles */
-  const themes = { 3: "lava", 4: "ice", 5: "void", 6: "void", 7: "lava", 8: "ice", 9: "lava", 10: "void" };
+  /* idea 41: themed hazard tiles (chapter two depths 12-16) */
+  const themes = { 3: "lava", 4: "ice", 5: "void", 6: "void", 7: "lava", 8: "ice", 9: "lava", 10: "void",
+                   12: "void", 13: "ice", 14: "ice", 15: "lava", 16: "void" };
   const theme = themes[n];
   if (theme && n >= 3) {
-    const count = n >= 5 ? 4 : 3;
+    const count = n >= 12 ? 5 : n >= 5 ? 4 : 3;
     for (let i = 0; i < count; i++) {
       const w = wrandi(50, 100), h = wrandi(20, 30);
       const x = wrand(M + 20, CFG.W - M - 20 - w);
@@ -65,7 +66,7 @@ function buildWorld(n, seed) {
   }
 
   /* idea 40: destructible barrels/crates */
-  const nCr = n >= 3 ? 3 : 2;
+  const nCr = n >= 12 ? 4 : n >= 3 ? 3 : 2;
   for (let i = 0; i < nCr; i++) {
     let x, y, tries = 0;
     do { x = wrand(M + 30, CFG.W - M - 30); y = wrand(M + 30, CFG.H - M - 30); tries++; }
@@ -75,7 +76,7 @@ function buildWorld(n, seed) {
 
   /* idea 46: environmental traps — spike traps that retract */
   if (n >= 2) {
-    const nTr = n >= 4 ? 3 : 2;
+    const nTr = n >= 12 ? 4 : n >= 4 ? 3 : 2;
     for (let i = 0; i < nTr; i++) {
       let x, y, tries = 0;
       do { x = wrand(M + 30, CFG.W - M - 30); y = wrand(M + 30, CFG.H - M - 30); tries++; }
