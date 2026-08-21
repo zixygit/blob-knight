@@ -1023,7 +1023,7 @@ function openShrine() {
 }
 
 /* ---------- save / load (idea 57) ---------- */
-const SAVE_KEY = "emberquest.save";
+const SAVE_KEY = "blobknight.save";
 function saveGame() {
   try {
     const save = {

@@ -4,7 +4,7 @@
    ============================================================ */
 "use strict";
 
-const STATS_KEY = "emberquest.stats";
+const STATS_KEY = "blobknight.stats";
 const STATS = loadStats();
 
 function loadStats() {
@@ -134,7 +134,7 @@ function showAchievements() {
   showOverlay("🏅 ACHIEVEMENTS", rows, "⬅ BACK", resetGame);
 }
 /* idea 99: opt-in death heatmap telemetry (off by default, stays on-device) */
-const TELEMETRY_KEY = "emberquest.telemetry";
+const TELEMETRY_KEY = "blobknight.telemetry";
 let TELEMETRY = loadTelemetry();
 function loadTelemetry() {
   try { return JSON.parse(localStorage.getItem(TELEMETRY_KEY)) || { enabled: false, deaths: [] }; }
