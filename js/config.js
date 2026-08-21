@@ -62,6 +62,14 @@ const ENEMY_TYPES = {
   trapper:  { name: "SILK WEAVER", r: 12, speed: 80,  color: "#d8d8e8", dmg: [3, 6],  hp: 30, kind: "trapper",
               fireCd: 3.5, proj: { speed: 260, r: 6, color: "#e8e8f8", dmg: [3, 6],
               pool: { r: 46, life: 4, dps: 0, web: true, color: "#c8c8d8" } } },
+  // New unique enemies — distinct combat roles
+  blink_assassin: { name: "BLINK ASSASSIN", r: 11, speed: 180, color: "#ff4d6a", dmg: [9, 14], hp: 24, kind: "blink_assassin", dashCd: 4.5, dashRange: 140 },
+  siege_drone: { name: "SIEGE DRONE", r: 12, speed: 110, color: "#5ab8ff", dmg: [6, 9], hp: 28, kind: "siege_drone", burstCd: 3.2, chargeCd: 7 },
+  mimic_knight: { name: "MIMIC KNIGHT", r: 15, speed: 65, color: "#c8c8e8", dmg: [7, 11], hp: 65, kind: "mimic_knight", blockArc: 1.1, counterCd: 3 },
+  plague_crawler: { name: "PLAGUE CRAWLER", r: 14, speed: 75, color: "#7ac74f", dmg: [5, 8], hp: 40, kind: "plague_crawler", trailCd: 0.6, burstCd: 8 },
+  rift_mage: { name: "RIFT MAGE", r: 13, speed: 60, color: "#a78bfa", dmg: [6, 10], hp: 36, kind: "rift_mage", portalCd: 9, spawnMax: 2 },
+  executioner: { name: "EXECUTIONER", r: 18, speed: 45, color: "#1a1a2e", dmg: [14, 20], hp: 95, kind: "executioner", slamCd: 3.5, enrageHp: 0.5 },
+  chain_beast: { name: "CHAIN BEAST", r: 16, speed: 70, color: "#8b5a2b", dmg: [7, 11], hp: 70, kind: "chain_beast", chainCd: 4.5, chainRange: 180 },
 };
 
 /* ---------- level layouts ---------- */
@@ -90,11 +98,10 @@ const LEVELS = {
     bg: "#1a1f2e", wall: "#2e3a52",
     minions: [
       { name: "RATTLEBONE",    type: "chaser",  count: 2 },
+      { name: "BLINK ASSASSIN", type: "blink_assassin", count: 1 }, // intro: blink
       { name: "CRYPT FIEND",   type: "shooter", count: 1, proj: { speed: 300, r: 6, color: "#b8c4d8", dmg: [5, 8] } },
       { name: "SKULL CHARGER", type: "charger", count: 1 },
       { name: "CRYPT WATCHER", type: "guard",   count: 1 },
-      { name: "BONE SPLITTER", type: "splitter", count: 1 },
-      { name: "BONE GOLIATH",  type: "elite",   count: 1 },
     ],
     boss: {
       name: "BONE WARDEN", kind: "boss", isBoss: true,
@@ -111,10 +118,10 @@ const LEVELS = {
     bg: "#2a1616", wall: "#4a2626",
     minions: [
       { name: "EMBER WHELP",    type: "chaser",  count: 2 },
-      { name: "FLAME HUSK",     type: "shooter", count: 2, proj: { speed: 340, r: 7, color: "#ff8b3d", dmg: [7, 10] } },
-      { name: "MAGMA BOMB",     type: "bomber",  count: 1 },
-      { name: "ASH SWARM",      type: "swarm",   count: 2 },
-      { name: "INFERNAL BRUTE", type: "elite",   count: 1 },
+      { name: "MIMIC KNIGHT",   type: "mimic_knight", count: 1 }, // intro: positioning
+      { name: "SIEGE DRONE",    type: "siege_drone", count: 1 }, // synergy: drone forces move, knight punishes
+      { name: "FLAME HUSK",     type: "shooter", count: 1, proj: { speed: 340, r: 7, color: "#ff8b3d", dmg: [7, 10] } },
+      { name: "ASH SWARM",      type: "swarm",   count: 1 },
     ],
     boss: {
       name: "EMBERFANG, THE DRAGON", kind: "boss", isBoss: true,
@@ -129,12 +136,11 @@ const LEVELS = {
     name: "THE FROZEN SPIRE",
     bg: "#14212c", wall: "#2e4a5e",
     minions: [
-      { name: "ICE GOBLIN",      type: "chaser",  count: 2 },
-      { name: "FROST ACOLYTE",   type: "freezer", count: 2 },
+      { name: "PLAGUE CRAWLER",  type: "plague_crawler", count: 1 }, // intro: area denial
+      { name: "EXECUTIONER",     type: "executioner", count: 1 }, // synergy: crawler restricts, executioner controls
+      { name: "FROST ACOLYTE",   type: "freezer", count: 1 },
       { name: "GLAZED SHIELDER", type: "shielder", count: 1 },
-      { name: "FROST BURROWER",  type: "burrower", count: 1 },
       { name: "AVALANCHE BRUTE", type: "charger", count: 1 },
-      { name: "GLACIER TROLL",   type: "brute",   count: 1 },
     ],
     boss: {
       name: "KARVATH, FROST MONARCH", kind: "boss", isBoss: true,
@@ -174,13 +180,11 @@ const LEVELS = {
     name: "THE VOID THRONE",
     bg: "#0e0e1a", wall: "#2a2a4e",
     minions: [
-      { name: "VOID SPARK",    type: "freezer",  count: 1 },
-      { name: "NULL WRAITH",   type: "phantom",  count: 2 },
-      { name: "VOID WEAVER",   type: "summoner", count: 1 },
-      { name: "VOID SEED",     type: "bomber",   count: 2 },
-      { name: "VOID MARKSMAN", type: "sniper",   count: 1 },
-      { name: "VOID SWARM",    type: "swarm",    count: 3 },
-      { name: "VOID SENTINEL", type: "elite",    count: 1 },
+      { name: "RIFT MAGE",     type: "rift_mage", count: 1 }, // support: portals, high priority
+      { name: "CHAIN BEAST",   type: "chain_beast", count: 1 }, // control: restricts movement
+      { name: "MIMIC KNIGHT",  type: "mimic_knight", count: 1 }, // synergy: knight protects mage
+      { name: "NULL WRAITH",   type: "phantom",  count: 1 },
+      { name: "VOID SWARM",    type: "swarm",    count: 2 },
     ],
     boss: {
       name: "THE VOID SOVEREIGN", kind: "boss", isBoss: true,

@@ -109,6 +109,27 @@ class Enemy {
       return;
     }
 
+    if (this.isNPC) {
+      // NPC ↔ Combat transitions: if hostile, restore boss AI
+      if (this.npcHostile) {
+        this.isNPC = false;
+        this.isBoss = true;
+        this.boss = this.originalBoss;
+        this.r = this.originalR;
+        this.maxHp = this.originalBoss.hp;
+        this.hp = this.maxHp;
+        this.speed = this.originalBoss.speed;
+        this.color = this.originalBoss.color;
+        this.name = this.originalBoss.name;
+        // reset boss timers
+        this.volleyT = this.originalBoss.volleyCd || 3;
+        this.radialT = this.originalBoss.radialCd || 0;
+        this.updateBoss(dt, game);
+        return;
+      }
+      this.updateNPC(dt, game);
+      return;
+    }
     if (this.isBoss) { this.updateBoss(dt, game); return; }
     /* idea 29: fear — low-HP minions flee briefly */
     if (this.hp < this.maxHp * 0.25 && this.maxHp > 8 && this.kind !== "shielder" && this.kind !== "guard" && this.kind !== "tentacle") {
@@ -152,6 +173,13 @@ class Enemy {
       case "commander": this.behaveCommander(dt, game, p); break;
       case "tentacle":  this.behaveTentacle(dt, game, p); break;
       case "trapper":   this.behaveTrapper(dt, game, p); break;
+      case "blink_assassin": this.behaveBlinkAssassin(dt, game, p); break;
+      case "siege_drone": this.behaveSiegeDrone(dt, game, p); break;
+      case "mimic_knight": this.behaveMimicKnight(dt, game, p); break;
+      case "plague_crawler": this.behavePlagueCrawler(dt, game, p); break;
+      case "rift_mage": this.behaveRiftMage(dt, game, p); break;
+      case "executioner": this.behaveExecutioner(dt, game, p); break;
+      case "chain_beast": this.behaveChainBeast(dt, game, p); break;
     }
     this.speed = baseSpeed;
     this.clamp();
@@ -725,6 +753,289 @@ class Enemy {
     }
   }
 
+  /* Blink Assassin — tracks, vanishes, reappears offset, telegraph, dash, retreat */
+  behaveBlinkAssassin(dt, game, p) {
+    if (!this.baState) { this.baState = "track"; this.baT = rand(1.2, this.dashCd || 4.5); }
+    if (this.baState === "track") {
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      this.x += Math.cos(ang) * this.speed * 0.85 * dt;
+      this.y += Math.sin(ang) * this.speed * 0.85 * dt;
+      this.baT -= dt;
+      if (this.baT <= 0 && dist(this, p) < 280) {
+        this.baState = "vanish"; this.baT = 0.4;
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.25 });
+        this.phased = true;
+      }
+      return;
+    }
+    if (this.baState === "vanish") {
+      this.baT -= dt;
+      if (this.baT <= 0) {
+        const off = (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2);
+        const ang = p.dir + off;
+        this.x = clamp(p.x + Math.cos(ang) * 48, CFG.MARGIN, CFG.W - CFG.MARGIN);
+        this.y = clamp(p.y + Math.sin(ang) * 48, CFG.MARGIN, CFG.H - CFG.MARGIN);
+        this.phased = false;
+        this.baState = "telegraph"; this.baT = 0.5;
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 10, t: 0.5, color: "#ff4d6a" });
+        game.flash(`${this.name} blinks!`, "#ff4d6a");
+      }
+      return;
+    }
+    if (this.baState === "telegraph") {
+      this.baT -= dt;
+      if (this.baT <= 0) { this.baState = "dash"; this.baT = 0.35; this.baDir = Math.atan2(p.y - this.y, p.x - this.x); }
+      return;
+    }
+    if (this.baState === "dash") {
+      this.x += Math.cos(this.baDir) * 420 * dt;
+      this.y += Math.sin(this.baDir) * 420 * dt;
+      if (dist(this, p) < this.r + p.r && this.cooldown <= 0) {
+        this.cooldown = 0.8;
+        game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      }
+      this.baT -= dt;
+      if (this.baT <= 0) { this.baState = "retreat"; this.baT = 0.6; this.retreatDir = Math.atan2(this.y - p.y, this.x - p.x); }
+      return;
+    }
+    if (this.baState === "retreat") {
+      this.x += Math.cos(this.retreatDir) * this.speed * 1.2 * dt;
+      this.y += Math.sin(this.retreatDir) * this.speed * 1.2 * dt;
+      this.baT -= dt;
+      if (this.baT <= 0) { this.baState = "track"; this.baT = rand(2, 4); }
+      return;
+    }
+  }
+
+  /* Siege Drone — maintains distance, predicts, bursts, charged shot */
+  behaveSiegeDrone(dt, game, p) {
+    const d = Math.max(1, dist(this, p));
+    const want = 260;
+    if (d < want - 30) { this.x -= (p.x - this.x)/d * this.speed * 0.7 * dt; this.y -= (p.y - this.y)/d * this.speed * 0.7 * dt; }
+    else if (d > want + 30) { this.x += (p.x - this.x)/d * this.speed * 0.6 * dt; this.y += (p.y - this.y)/d * this.speed * 0.6 * dt; }
+    else {
+      const perp = Math.atan2(p.y - this.y, p.x - this.x) + Math.PI/2;
+      this.x += Math.cos(perp) * this.speed * 0.4 * dt;
+      this.y += Math.sin(perp) * this.speed * 0.4 * dt;
+    }
+    this.burstT = (this.burstT || 0) - dt;
+    this.chargeT = (this.chargeT || 0) - dt;
+    if (this.chargeT <= 0 && Math.random() < 0.12) {
+      this.chargeT = this.chargeCd || 7;
+      this.charging = 1.2;
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 12, t: 1.2, color: "#5ab8ff" });
+      game.flash(`${this.name} charging!`, "#5ab8ff");
+    }
+    if (this.charging > 0) {
+      this.charging -= dt;
+      game.effects.push({ type: "trail", x: this.x, y: this.y, t: 0.1, color: "#5ab8ff", r: 4 });
+      if (this.charging <= 0) {
+        const predX = clamp(p.x + (p.vx||0)*0.6, CFG.MARGIN, CFG.W - CFG.MARGIN);
+        const predY = clamp(p.y + (p.vy||0)*0.6, CFG.MARGIN, CFG.H - CFG.MARGIN);
+        const ang = Math.atan2(predY - this.y, predX - this.x);
+        game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang)*420, Math.sin(ang)*420, 7, rand(10,14), "#5ab8ff"));
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+      }
+      return;
+    }
+    if (this.burstT <= 0) {
+      this.burstT = this.burstCd || 3.2;
+      this.burstCount = 3;
+      this.burstDelay = 0;
+    }
+    if (this.burstCount > 0) {
+      this.burstDelay -= dt;
+      if (this.burstDelay <= 0) {
+        this.burstDelay = 0.14;
+        this.burstCount--;
+        const predX = clamp(p.x + (p.vx||0)*0.45, CFG.MARGIN, CFG.W - CFG.MARGIN);
+        const predY = clamp(p.y + (p.vy||0)*0.45, CFG.MARGIN, CFG.H - CFG.MARGIN);
+        const ang = Math.atan2(predY - this.y, predX - this.x) + rand(-8,8)/100;
+        game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang)*320, Math.sin(ang)*320, 5, rand(this.dmg[0],this.dmg[1]), "#5ab8ff"));
+      }
+    }
+  }
+
+  /* Mimic Knight — blocks one direction, changes guard, counterattacks */
+  behaveMimicKnight(dt, game, p) {
+    const toP = Math.atan2(p.y - this.y, p.x - this.x);
+    let diff = Math.abs(toP - this.shieldDir);
+    while (diff > Math.PI) diff -= 2*Math.PI;
+    diff = Math.abs(diff);
+    // update guard direction to face player, but with delay
+    this.shieldDir += (toP - this.shieldDir) * 2.5 * dt;
+    // if player attacks from front, block
+    if (this.cooldown <= 0 && dist(this, p) < this.r + p.r + 18 && diff < this.blockArc/2 + 0.4) {
+      // blocked — telegraph counter
+      if (!this.counterTelegraph) {
+        this.counterTelegraph = 0.45;
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 8, t: 0.45, color: "#c8c8e8" });
+        game.flash(`${this.name} prepares to counter!`, "#c8c8e8");
+      }
+    }
+    if (this.counterTelegraph > 0) {
+      this.counterTelegraph -= dt;
+      if (this.counterTelegraph <= 0) {
+        this.counterTelegraph = 0;
+        if (dist(this, p) < 70) {
+          game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+          game.effects.push({ type: "hit", x: p.x, y: p.y, t: 0.3, txt: "COUNTER!", color: "#c8c8e8" });
+        }
+        this.cooldown = this.counterCd || 3;
+      }
+      return;
+    }
+    // normal chase but slower when guarding
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    this.x += Math.cos(ang) * this.speed * 0.65 * dt;
+    this.y += Math.sin(ang) * this.speed * 0.65 * dt;
+    if (dist(this, p) < this.r + p.r && this.cooldown <= 0 && diff > this.blockArc/2) {
+      this.cooldown = 0.9;
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+    }
+  }
+
+  /* Plague Crawler — leaves damaging trail, close attack, larger hazard */
+  behavePlagueCrawler(dt, game, p) {
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    this.x += Math.cos(ang) * this.speed * dt;
+    this.y += Math.sin(ang) * this.speed * dt;
+    this.trailT = (this.trailT || 0) - dt;
+    if (this.trailT <= 0) {
+      this.trailT = this.trailCd || 0.6;
+      game.G.aoeZones.push({ x: this.x, y: this.y, r: 32, t: 3, max: 3, dmg: [3,5], color: "#7ac74f" });
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: 32, t: 3, color: "#7ac74f" });
+    }
+    if (dist(this, p) < this.r + p.r + 12 && this.cooldown <= 0) {
+      this.cooldown = 1.0;
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      // occasionally larger hazard
+      if (Math.random() < 0.25) {
+        game.G.aoeZones.push({ x: p.x, y: p.y, r: 64, t: 4, max: 4, dmg: [5,8], color: "#7ac74f" });
+        game.effects.push({ type: "ring", x: p.x, y: p.y, r: 64, t: 4, color: "#7ac74f" });
+        game.flash("Plague zone!", "#7ac74f");
+      }
+    }
+  }
+
+  /* Rift Mage — portals that spawn weaker enemies, telegraphed ranged, stays away */
+  behaveRiftMage(dt, game, p) {
+    const d = Math.max(1, dist(this, p));
+    if (d < 180) { this.x -= (p.x - this.x)/d * this.speed * dt; this.y -= (p.y - this.y)/d * this.speed * dt; }
+    else if (d > 260) { this.x += (p.x - this.x)/d * this.speed * 0.5 * dt; this.y += (p.y - this.y)/d * this.speed * 0.5 * dt; }
+    this.portalT = (this.portalT || 0) - dt;
+    if (this.portalT <= 0 && game.enemies.length < 18) {
+      const spawned = game.enemies.filter(e=> e.summoned).length;
+      if (spawned < (this.spawnMax || 2)) {
+        this.portalT = this.portalCd || 9;
+        const px = clamp(this.x + rand(-80,80), CFG.MARGIN, CFG.W - CFG.MARGIN);
+        const py = clamp(this.y + rand(-80,80), CFG.MARGIN, CFG.H - CFG.MARGIN);
+        game.effects.push({ type: "ring", x: px, y: py, r: 22, t: 1.2, color: "#a78bfa" });
+        game.flash(`${this.name} opens a rift!`, "#a78bfa");
+        setTimeout(()=>{
+          const def = Object.assign({}, ENEMY_TYPES.imp, { name: "RIFT SPAWN" });
+          const e = new Enemy(def, px, py);
+          e.summoned = true;
+          game.enemies.push(e);
+        }, 800);
+      }
+    }
+    if (this.cooldown <= 0) {
+      this.cooldown = 2.8;
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 6, t: 0.5, color: "#a78bfa" });
+      setTimeout(()=>{
+        game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang)*280, Math.sin(ang)*280, 6, rand(this.dmg[0],this.dmg[1]), "#a78bfa"));
+      }, 350);
+      game.flash(`${this.name} casts!`, "#a78bfa");
+    }
+  }
+
+  /* Executioner — slow, large telegraphed slam, high damage, enrage below 50% */
+  behaveExecutioner(dt, game, p) {
+    if (this.enraged2) {
+      this.speed = 68;
+      this.slamCd = 2.2;
+    } else if (this.hp < this.maxHp * (this.enrageHp || 0.5) && !this.enraged) {
+      this.enraged = true;
+      this.enraged2 = true;
+      game.flash(`${this.name} ENRAGED!`, "#ff2a6a");
+      game.shake = Math.max(game.shake, 0.3);
+    }
+    const d = dist(this, p);
+    if (d > this.r + p.r + 18) {
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      this.x += Math.cos(ang) * this.speed * dt;
+      this.y += Math.sin(ang) * this.speed * dt;
+    } else if (this.cooldown <= 0) {
+      // telegraph large slam
+      if (!this.slamTelegraph) {
+        this.slamTelegraph = 0.7;
+        game.effects.push({ type: "ring", x: p.x, y: p.y, r: 52, t: 0.7, color: "#1a1a2e" });
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 12, t: 0.7, color: "#ff2a6a" });
+        game.flash(`${this.name} winds up!`, "#ff2a6a");
+      }
+    }
+    if (this.slamTelegraph > 0) {
+      this.slamTelegraph -= dt;
+      if (this.slamTelegraph <= 0) {
+        this.slamTelegraph = 0;
+        this.cooldown = this.slamCd || 3.5;
+        // large range slam
+        if (dist(this, p) < 78) {
+          game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+          game.effects.push({ type: "boom", x: p.x, y: p.y, t: 0.4 });
+          game.shake = Math.max(game.shake, 0.25);
+        }
+        // also ground slam ring
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: 78, t: 0.3, color: "#ff2a6a" });
+      }
+    }
+  }
+
+  /* Chain Beast — throws chain that restricts movement, remains as obstacle if misses */
+  behaveChainBeast(dt, game, p) {
+    const d = dist(this, p);
+    if (d < 70 && this.cooldown <= 0) {
+      this.cooldown = 1.1;
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      return;
+    }
+    this.chainT = (this.chainT || 0) - dt;
+    if (this.chainT <= 0 && d < (this.chainRange || 180) && d > 70) {
+      this.chainT = this.chainCd || 4.5;
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 8, t: 0.5, color: "#8b5a2b" });
+      game.flash(`${this.name} throws chain!`, "#8b5a2b");
+      // telegraph line
+      game.effects.push({ type: "beam", x1: this.x, y1: this.y, x2: p.x, y2: p.y, t: 0.5, color: "#8b5a2b" });
+      setTimeout(()=>{
+        if (dist(this, p) < 90) {
+          // hit — restrict movement
+          G.slowT = Math.max(G.slowT, 1.8);
+          game.effects.push({ type: "hit", x: p.x, y: p.y, t: 0.4, txt: "CHAINED!", color: "#8b5a2b" });
+          game.flash("CHAINED!", "#8b5a2b");
+        } else {
+          // miss — chain remains as temporary obstacle
+          const mx = clamp(this.x + Math.cos(ang) * 70, CFG.MARGIN, CFG.W - CFG.MARGIN);
+          const my = clamp(this.y + Math.sin(ang) * 70, CFG.MARGIN, CFG.H - CFG.MARGIN);
+          game.obstacles = game.obstacles || [];
+          const obs = { x: mx - 18, y: my - 8, w: 36, h: 16 };
+          game.obstacles.push(obs);
+          setTimeout(()=> {
+            const idx = game.obstacles.indexOf(obs);
+            if (idx >= 0) game.obstacles.splice(idx, 1);
+          }, 3500);
+          game.effects.push({ type: "ring", x: mx, y: my, r: 22, t: 3.5, color: "#8b5a2b" });
+        }
+      }, 450);
+    } else if (d > 90) {
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      this.x += Math.cos(ang) * this.speed * dt;
+      this.y += Math.sin(ang) * this.speed * dt;
+    }
+  }
+
   /* ---------- boss AI: chase + volley + radial + spiral + summon + enrages ---------- */
   updateBoss(dt, game) {
     const p = game.player;
@@ -1097,6 +1408,40 @@ class Enemy {
       }
     }
   }
+
+  updateNPC(dt, game) {
+    const p = game.player;
+    this.hurtT = Math.max(0, this.hurtT - dt);
+    this.npcTimer -= dt;
+    if (this.npcState === "idle") {
+      this.y += Math.sin(game.time * 1.2 + this.x) * 0.12;
+      if (this.npcTimer <= 0) {
+        this.npcState = "wander";
+        this.npcTimer = rand(1, 2);
+        this.npcDir = Math.random() * Math.PI * 2;
+        game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 4, t: 0.25, color: this.color });
+      }
+    } else if (this.npcState === "wander") {
+      this.x += Math.cos(this.npcDir) * this.speed * 0.7 * dt;
+      this.y += Math.sin(this.npcDir) * this.speed * 0.7 * dt;
+      this.clamp();
+      if (dist(this, p) < 50) this.npcDir += Math.PI;
+      for (const o of game.obstacles || []) {
+        if (circleRect(this.x, this.y, this.r, o)) { this.npcDir += Math.PI / 2; break; }
+      }
+      if (this.npcTimer <= 0) {
+        this.npcState = "stop";
+        this.npcTimer = rand(0.6, 1.2);
+      }
+    } else if (this.npcState === "stop") {
+      if (this.npcTimer <= 0) {
+        this.npcState = "idle";
+        this.npcTimer = rand(1.5, 2.5);
+      }
+    }
+    // Become hostile if damaged
+    if (this.hp < this.maxHp) this.npcHostile = true;
+  }
 }
 
 /* ---------- projectiles (player bolts & enemy shots) ----------
@@ -1127,6 +1472,8 @@ class Projectile {
     this.boomerang = !!(opts && opts.boomerang);   // idea 50
     this.bomb = !!(opts && opts.bomb);             // idea 52
     this.fuse = (opts && opts.fuse) || 0;
+    this.pool = (opts && opts.pool) || null;       // chapter two: splashes into a hazard zone
+    this.bounce = (opts && opts.bounce) || 0;      // chapter two: glass shards ricochet off walls
     this.hitSet = new Set();
     this.px = x; this.py = y; // previous pos for swept
   }

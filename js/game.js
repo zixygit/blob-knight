@@ -210,51 +210,20 @@ game.G.bossSpawned = false;
         const lvl = parseInt(key.split(":")[0]);
         const bossDef = LEVELS[lvl] ? LEVELS[lvl].boss : null;
         if (bossDef) {
-          // NPC size: 55% of boss, but keep boss version unchanged
+          // NPC size: 55% of boss, preserve original for combat transition
           const npcR = Math.max(10, Math.round(bossDef.r * 0.55));
-          const npc = new Enemy(Object.assign({}, bossDef, { name: bossDef.name + " (Ally)", isBoss: false, hp: 1, maxHp: 1, speed: 55, r: npcR, color: bossDef.color }), world.shrine ? world.shrine.x + rand(-60,60) : rand(120, CFG.W-120), world.shrine ? world.shrine.y + rand(-40,40) : rand(120, CFG.H-120));
+          const npcDef = Object.assign({}, bossDef, { name: bossDef.name + " (Ally)", isBoss: false, hp: 1, maxHp: 1, speed: 55, r: npcR, color: bossDef.color });
+          const npc = new Enemy(npcDef, world.shrine ? world.shrine.x + rand(-60,60) : rand(120, CFG.W-120), world.shrine ? world.shrine.y + rand(-40,40) : rand(120, CFG.H-120));
           npc.isNPC = true;
           npc.npcName = bossDef.name;
-          npc.originalColor = bossDef.color;
+          npc.originalBoss = Object.assign({}, bossDef);
           npc.originalR = bossDef.r;
+          npc.originalColor = bossDef.color;
+          npc.npcHostile = false;
           // NPC behavior: idle → wander → stop → idle (believable, not random)
           npc.npcState = "idle";
           npc.npcTimer = rand(1, 2);
           npc.npcDir = Math.random() * Math.PI * 2;
-          npc.update = function(dt, game) {
-            this.hurtT = Math.max(0, this.hurtT - dt);
-            this.npcTimer -= dt;
-            if (this.npcState === "idle") {
-              // gentle bobbing, no move
-              this.y += Math.sin(game.time * 1.2 + this.x) * 0.12;
-              if (this.npcTimer <= 0) {
-                this.npcState = "wander";
-                this.npcTimer = rand(1, 2);
-                this.npcDir = Math.random() * Math.PI * 2;
-                // slight telegraph before moving
-                game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 4, t: 0.25, color: this.color });
-              }
-            } else if (this.npcState === "wander") {
-              this.x += Math.cos(this.npcDir) * this.speed * 0.7 * dt;
-              this.y += Math.sin(this.npcDir) * this.speed * 0.7 * dt;
-              this.clamp();
-              // avoid player and obstacles
-              if (dist(this, game.player) < 50) {
-                this.npcDir += Math.PI;
-              }
-              if (this.npcTimer <= 0) {
-                this.npcState = "stop";
-                this.npcTimer = rand(0.6, 1.2);
-              }
-            } else if (this.npcState === "stop") {
-              if (this.npcTimer <= 0) {
-                this.npcState = "idle";
-                this.npcTimer = rand(1.5, 2.5);
-              }
-            }
-            // never hostile — no damage, no attack
-          };
-          npc.clamp = function(){ this.x = clamp(this.x, CFG.MARGIN, CFG.W - CFG.MARGIN); this.y = clamp(this.y, CFG.MARGIN, CFG.H - CFG.MARGIN); };
           game.enemies.push(npc);
         }
       }
