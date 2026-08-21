@@ -1266,23 +1266,23 @@ function openShop() {
   const merchantLine = MERCHANT_LINES[rand(0, MERCHANT_LINES.length - 1)];   // idea 84
   const g = c => `${shopPrice(c)}g`;
   const afford = c => G.gold >= shopPrice(c);
-  showOverlay("🛒 CAMPFIRE MERCHANT", `Level ${G.level}/${MAX_LEVEL} · <b>${G.gold}g</b><br><span class="merchant">“${merchantLine}”</span><br><span class="skip-hint">SKIP → <span class="kbd">ENTER</span> or NEXT DOOR</span>`, null, null, [
-    { label: `🧪 POTION (${g(40)})`, fn: buyPotion, disabled: !afford(40) },
-    { label: `🍵 FULL HEAL (${g(30)})`, fn: buyHeal, disabled: !afford(30) || G.hp >= G.maxHp },
-    { label: `⚔️ +2 ATK (${g(80)})`, fn: buyAttack, disabled: !afford(80) },
-    { label: `🛡️ +2 DEF (${g(100)})`, fn: buyArmor, disabled: !afford(100) },
-    { label: `🔮 ARTIFACT (${g(180)})`, fn: buyArtifact, disabled: hasArtifact || !afford(180), note: hasArtifact ? `HAS ${G.artifact}` : "One passive trinket" },   // idea 16
-    { label: `💣 BOMB x3 (${g(60)})`, fn: buyBombs, disabled: !afford(60) },                                                                                  // idea 52
-    { label: `🤖 TURRET (${g(140)})`, fn: buyTurret, disabled: !afford(140), note: "Deploy with G" },                                                        // idea 53
-    { label: `🪤 BEAR TRAP (${g(90)})`, fn: buyTrap, disabled: !afford(90), note: "Set with T" },                                                            // idea 53
-    { label: `☠️ CURSED ITEM (${g(100)})`, fn: buyCursed, disabled: !afford(100) },                                                                         // idea 54
-    ...newWeapons.map(w => ({ label: `${WEAPONS[w].icon} ${WEAPONS[w].name} (${g(WEAPONS[w].cost)})`, fn: buyWeapon.bind(null, w), disabled: !afford(WEAPONS[w].cost), note: WEAPONS[w].desc })),
-    { label: `🌊 WAVE BLADE (${g(150)})`, fn: buyWeapon.bind(null, "wave"), disabled: owned.includes("wave") || !afford(150), note: owned.includes("wave") ? "OWNED" : "Shockwave burst" },
-    { label: `🏹 CROSSBOW (${g(200)})`, fn: buyWeapon.bind(null, "crossbow"), disabled: owned.includes("crossbow") || !afford(200), note: owned.includes("crossbow") ? "OWNED" : "Fast bolts" },
-    { label: `🔥 EMBER STAFF (${g(300)})`, fn: buyWeapon.bind(null, "staff"), disabled: owned.includes("staff") || !afford(300), note: owned.includes("staff") ? "OWNED" : "Explosive fireball" },
-    { label: `🔀 REROLL STOCK (30g)`, fn: rerollShop, disabled: G.gold < 30 },                                                                          // idea 56
-    { label: `➡️ NEXT DOOR`, fn: nextLevel },
-    { label: `⬅️ BACK TO FIGHT`, fn: resumePlay },
+  showOverlay("🛒 CAMPFIRE MERCHANT", `Level ${G.level}/${MAX_LEVEL} · <b>${G.gold}g</b><br><span class="merchant">“${merchantLine}”</span>`, null, null, [
+    { label: `🧪 POTION`, note: `${g(40)} — +1`, fn: buyPotion, disabled: !afford(40) },
+    { label: `🍵 FULL HEAL`, note: `${g(30)} — HP to max`, fn: buyHeal, disabled: !afford(30) || G.hp >= G.maxHp },
+    { label: `⚔️ ATK +2`, note: g(80), fn: buyAttack, disabled: !afford(80) },
+    { label: `🛡️ DEF +2`, note: g(100), fn: buyArmor, disabled: !afford(100) },
+    { label: `🔮 ARTIFACT`, note: hasArtifact ? `HAS ${G.artifact}` : `${g(180)} — One trinket`, fn: buyArtifact, disabled: hasArtifact || !afford(180) },
+    { label: `💣 BOMBS x3`, note: g(60), fn: buyBombs, disabled: !afford(60) },
+    { label: `🤖 TURRET`, note: `${g(140)} — G`, fn: buyTurret, disabled: !afford(140) },
+    { label: `🪤 TRAP`, note: `${g(90)} — T`, fn: buyTrap, disabled: !afford(90) },
+    { label: `☠️ CURSED`, note: g(100), fn: buyCursed, disabled: !afford(100) },
+    ...newWeapons.map(w => ({ label: `${WEAPONS[w].icon} ${WEAPONS[w].name}`, note: `${g(WEAPONS[w].cost)} — ${WEAPONS[w].desc}`, fn: buyWeapon.bind(null, w), disabled: !afford(WEAPONS[w].cost) })),
+    { label: `🌊 WAVE BLADE`, note: owned.includes("wave") ? "OWNED" : `${g(150)} — Shockwave`, fn: buyWeapon.bind(null, "wave"), disabled: owned.includes("wave") || !afford(150) },
+    { label: `🏹 CROSSBOW`, note: owned.includes("crossbow") ? "OWNED" : `${g(200)} — Fast bolts`, fn: buyWeapon.bind(null, "crossbow"), disabled: owned.includes("crossbow") || !afford(200) },
+    { label: `🔥 EMBER STAFF`, note: owned.includes("staff") ? "OWNED" : `${g(300)} — Fireball`, fn: buyWeapon.bind(null, "staff"), disabled: owned.includes("staff") || !afford(300) },
+    { label: `🔀 REROLL`, note: `30g`, fn: rerollShop, disabled: G.gold < 30 },
+    { label: `➡️ NEXT DOOR`, fn: nextLevel, primary: true },
+    { label: `⬅️ BACK`, fn: resumePlay },
   ]);
   checkSetBonus();   // idea 55
 }
@@ -1400,12 +1400,20 @@ function showGodPerks() {
     const unlocked = isGodPerkUnlocked(id);
     const next = nextGodPerk();
     const isNext = next === id && !unlocked;
-    const status = unlocked ? `✅ UNLOCKED — Active in God Run` : isNext ? `🔓 NEXT — Complete Normal to unlock` : `🔒 LOCKED — Unlock ${GODRUN_PERKS[next]?.name || "previous"} first`;
-    const active = unlocked && G.difficulty === "godrun" ? " (ACTIVE NOW)" : "";
-    return `${perk.icon} <b>${perk.name}</b> — ${perk.desc}<br><span style="color:${unlocked ? "#6bff9a" : isNext ? "#ffd166" : "#9a90b8"}">${status}${active}</span>`;
-  }).join("<br><br>");
-  const progress = `Progress: ${GOD_PERKS.unlocked.length}/4 — Order: 3 → 4 → 1 → 2<br><br>`;
-  showOverlay("🌀 GOD RUN PERKS", progress + rows, "⬅ BACK", resetGame);
+    const status = unlocked ? "UNLOCKED" : isNext ? "NEXT" : "LOCKED";
+    const statusIcon = unlocked ? "✅" : isNext ? "🔓" : "🔒";
+    const statusColor = unlocked ? "#6bff9a" : isNext ? "#ffd166" : "#9a90b8";
+    const req = isNext ? "Complete Normal Mode" : unlocked ? "Active in God Run" : `Unlock ${GODRUN_PERKS[next]?.name || "previous"} first`;
+    const active = unlocked && G.difficulty === "godrun" ? `<br><span style="color:#6fc3ff; font-size:11px;">● ACTIVE NOW</span>` : "";
+    return `<div style="text-align:center; padding:10px 0; border-bottom:1px solid #1e1a33; margin:0 12px;">
+      <div style="font-weight:bold; letter-spacing:1px;">${perk.icon} ${perk.name}</div>
+      <div style="color:#c8c0d8; font-size:12px; margin:2px 0;">${perk.desc}</div>
+      <div style="color:${statusColor}; font-weight:bold; font-size:11px; letter-spacing:1.5px;">${statusIcon} ${status}</div>
+      <div style="color:#9a90b8; font-size:11px;">${req}</div>${active}
+    </div>`;
+  }).join("");
+  const progress = `<div style="text-align:center; margin-bottom:14px; color:#9a90b8; font-size:12px; letter-spacing:1px;">Progress: ${GOD_PERKS.unlocked.length}/4 — Order: 3 → 4 → 1 → 2</div>`;
+  showOverlay("🌀 GOD RUN PERKS", progress + `<div style="display:flex; flex-direction:column; gap:2px;">${rows}</div>`, "⬅ BACK", resetGame);
 }
 function openPauseMenu() {
   showOverlay("⏸ PAUSED", "", null, null, [
@@ -1559,11 +1567,18 @@ function resetGame() {
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
     { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
     { label: "🌀 GOD RUN PERKS", fn: showGodPerks, note: `${GOD_PERKS.unlocked.length}/4 unlocked` },
+    { label: "🛒 SHOP", fn: openShop, note: `${G.gold}g` },
     { label: "⚙️ SETTINGS", fn: openOptions },
     { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(()=> { try{ window.close(); }catch(e){} }, 400); } },
   ];
   showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
-  /* difficulty panel — hidden until DIFFICULTY is clicked, expands directly underneath */
+  // Wrap main menu buttons in centered container for proper vertical centering
+  const overlayEl = $("overlay");
+  const menuCenter = document.createElement("div");
+  menuCenter.className = "main-menu-center";
+  [...overlayEl.querySelectorAll("button.btn")].forEach(btn => menuCenter.appendChild(btn));
+  overlayEl.appendChild(menuCenter);
+  /* difficulty panel — hidden until DIFFICULTY is clicked, expands directly underneath DIFFICULTY */
   const dh = document.createElement("div");
   dh.className = "menu-diff";
   dh.id = "diffPanel";
@@ -1571,9 +1586,10 @@ function resetGame() {
   dh.style.flexDirection = "column";
   dh.style.alignItems = "center";
   dh.style.width = "100%";
-  dh.style.maxWidth = "360px";
+  dh.style.maxWidth = "340px";
   dh.style.gap = "6px";
-  dh.style.marginTop = "2px";
+  dh.style.marginTop = "6px";
+  dh.style.marginBottom = "6px";
   for (const [key, d] of Object.entries(DIFFICULTIES)) {
     const b = document.createElement("button");
     b.className = "btn diff-chip" + (G.difficulty === key ? " on" : "");
@@ -1581,19 +1597,19 @@ function resetGame() {
     b.style.width = "100%";
     b.style.fontSize = "11px";
     b.style.justifyContent = "center";
+    b.style.padding = "8px 12px";
     b.onclick = () => {
       G.difficulty = key;
       flash(`Difficulty: ${d.name} — ${d.desc}`, "#6fc3ff");
       [...dh.querySelectorAll("button")].forEach(btn => btn.classList.toggle("on", btn.textContent.startsWith(d.name)));
-      const diffBtn = [...document.querySelectorAll("#overlay button.btn")].find(btn => btn.textContent.includes("DIFFICULTY"));
+      const diffBtn = [...menuCenter.querySelectorAll("button.btn")].find(btn => btn.textContent.includes("DIFFICULTY"));
       if (diffBtn) diffBtn.textContent = `⚔️ DIFFICULTY — ${d.name}`;
     };
     dh.appendChild(b);
   }
-  const overlayEl = $("overlay");
-  const diffBtnEl = [...overlayEl.querySelectorAll("button.btn")].find(b => b.textContent.includes("DIFFICULTY"));
+  const diffBtnEl = [...menuCenter.querySelectorAll("button.btn")].find(b => b.textContent.includes("DIFFICULTY"));
   if (diffBtnEl) diffBtnEl.insertAdjacentElement("afterend", dh);
-  else overlayEl.appendChild(dh);
+  else menuCenter.appendChild(dh);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1631,7 +1647,7 @@ function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
   const o = $("overlay");
   o.innerHTML = `<h2>${title}</h2><p>${body}</p>`;
   o.classList.toggle("main-menu", !!addName);
-  o.style.display = addName ? "grid" : "flex";
+  o.style.display = "flex";
   const list = (buttons || []).slice();
   if (btnLabel && btnFn) list.push({ label: btnLabel, fn: btnFn, primary: true });
   for (const b of list) {
