@@ -88,7 +88,10 @@ addEventListener("keydown", e => {
   if (k === km.trap && !e.repeat) deployTrapKey();
   /* ENTER skips any interstitial screen (shop / branch / level-clear) or starts from the menu */
   if (k === "enter" && !e.repeat) {
-    if (G.phase === "shop") nextLevel();
+    const ob = typeof overlayButtons !== "undefined" ? overlayButtons() : [];
+    const focusedOverlayBtn = ob.length && document.activeElement && ob.includes(document.activeElement);
+    if (focusedOverlayBtn) { /* overlay handler will click the focused button */ }
+    else if (G.phase === "shop") nextLevel();
     else if (G.phase === "branch") { G.branchBonus = "combat"; nextLevel(); }
     else if (G.phase === "clear") nextLevel();
     else if (G.phase === "menu") beginGame();
@@ -482,7 +485,7 @@ function killEnemy(e, silent) {
     game.G.minionsLeft--;
     dropLoot(e.x, e.y, false);
     if (game.G.minionsLeft <= 0 && !game.G.bossSpawned) spawnBoss();
-  } else if (Math.random() < 0.3) {
+  } else if (Math.random() < 0.15) {
     game.G.loot.push(new Pickup("gold", e.x, e.y, rand(5, 15)));
   }
   renderHUD();
@@ -490,13 +493,14 @@ function killEnemy(e, silent) {
 
 function dropLoot(x, y, isBoss) {
   if (isBoss) { G.gold += 25; return; }
+  if (Math.random() < 0.90) return; // exactly 10% orb drop — 90% no drop
   const r = Math.random();
-  if (r < 0.36) game.G.loot.push(new Pickup("gold", x, y, rand(15, 40)));
-  else if (r < 0.52) game.G.loot.push(new Pickup("potion", x, y));
-  else if (r < 0.64) game.G.loot.push(new Pickup("herb", x, y));
-  else if (r < 0.76) game.G.loot.push(new Pickup("stone", x, y));
-  else if (r < 0.86) game.G.loot.push(new Pickup("charm", x, y));
-  else if (r < 0.95) game.G.loot.push(new Pickup("rune", x, y));
+  if (r < 0.30) game.G.loot.push(new Pickup("gold", x, y, rand(15, 40)));
+  else if (r < 0.45) game.G.loot.push(new Pickup("potion", x, y));
+  else if (r < 0.58) game.G.loot.push(new Pickup("herb", x, y));
+  else if (r < 0.70) game.G.loot.push(new Pickup("stone", x, y));
+  else if (r < 0.80) game.G.loot.push(new Pickup("charm", x, y));
+  else if (r < 0.90) game.G.loot.push(new Pickup("rune", x, y));
   else game.G.loot.push(new Pickup("perk", x, y));          // idea 12: rare perk drop
 }
 
@@ -935,8 +939,8 @@ function update(dt) {
     } else {
       G.phase = "clear";
       showOverlay("⚑ LEVEL CLEAR", "The door is open.", null, null, [
-        { label: "🛒 VISIT SHOP", fn: () => { G.phase = "play"; openShop(); } },
         { label: "➡️ NEXT LEVEL", fn: nextLevel, primary: true },
+        { label: "🛒 VISIT SHOP", fn: () => { G.phase = "play"; openShop(); } },
       ]);
     }
     return;
@@ -1418,10 +1422,11 @@ function togglePause() {
 
 /* idea 59: difficulty settings */
 function openDifficultyMenu() {
+  const returnToMenu = G.phase === "menu";
   showOverlay("⚙️ DIFFICULTY", "Enemy power scaling:", null, null,
     Object.entries(DIFFICULTIES).map(([key, d]) => ({
       label: `${d.name} — ${d.desc}`, primary: G.difficulty === key,
-      fn: () => { G.difficulty = key; flash(`Difficulty: ${d.name}`, "#6fc3ff"); togglePause(); },
+      fn: () => { G.difficulty = key; flash(`Difficulty: ${d.name}`, "#6fc3ff"); if (returnToMenu) resetGame(); else togglePause(); },
     })));
 }
 function resumePaused() { hideOverlay(); G.phase = "play"; setTouchUI(true); }
@@ -1456,20 +1461,42 @@ function resetGame() {
   const buttons = [
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
     { label: "📖 CONTINUE", fn: continueRun, note: "Resume last run" },
+    { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
     { label: "⚙️ SETTINGS", fn: openOptions },
+    { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); } },
   ];
   showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
-  /* difficulty selector — compact chips below the main buttons */
+  /* difficulty panel — hidden until DIFFICULTY is clicked, expands directly underneath */
   const dh = document.createElement("div");
   dh.className = "menu-diff";
+  dh.id = "diffPanel";
+  dh.style.display = "none";
+  dh.style.flexDirection = "column";
+  dh.style.alignItems = "center";
+  dh.style.width = "100%";
+  dh.style.maxWidth = "360px";
+  dh.style.gap = "6px";
+  dh.style.marginTop = "2px";
   for (const [key, d] of Object.entries(DIFFICULTIES)) {
     const b = document.createElement("button");
     b.className = "btn diff-chip" + (G.difficulty === key ? " on" : "");
-    b.textContent = d.name;
-    b.onclick = () => { G.difficulty = key; flash(`Difficulty: ${d.name} — ${d.desc}`, "#6fc3ff"); resetGame(); };
+    b.textContent = `${d.name} — ${d.desc}`;
+    b.style.width = "100%";
+    b.style.fontSize = "11px";
+    b.style.justifyContent = "center";
+    b.onclick = () => {
+      G.difficulty = key;
+      flash(`Difficulty: ${d.name} — ${d.desc}`, "#6fc3ff");
+      [...dh.querySelectorAll("button")].forEach(btn => btn.classList.toggle("on", btn.textContent.startsWith(d.name)));
+      const diffBtn = [...document.querySelectorAll("#overlay button.btn")].find(btn => btn.textContent.includes("DIFFICULTY"));
+      if (diffBtn) diffBtn.textContent = `⚔️ DIFFICULTY — ${d.name}`;
+    };
     dh.appendChild(b);
   }
-  $("overlay").appendChild(dh);
+  const overlayEl = $("overlay");
+  const diffBtnEl = [...overlayEl.querySelectorAll("button.btn")].find(b => b.textContent.includes("DIFFICULTY"));
+  if (diffBtnEl) diffBtnEl.insertAdjacentElement("afterend", dh);
+  else overlayEl.appendChild(dh);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1519,11 +1546,42 @@ function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
     el.style.opacity = b.disabled ? ".4" : "1";
     el.style.cursor = b.disabled ? "not-allowed" : "pointer";
     el.onclick = b.fn;
+    el.tabIndex = b.disabled ? -1 : 0;
     o.appendChild(el);
   }
+  o.dataset.nav = "1";
+  const navBtns = [...o.querySelectorAll("button.btn")].filter(b => !b.disabled);
+  if (navBtns[0]) navBtns[0].focus();
 }
 
-function hideOverlay() { $("overlay").innerHTML = ""; $("overlay").style.display = "none"; }
+function overlayButtons() {
+  const o = $("overlay");
+  return o && o.dataset.nav === "1" ? [...o.querySelectorAll("button.btn")].filter(b => !b.disabled) : [];
+}
+function overlayFocusMove(dir) {
+  const btns = overlayButtons();
+  if (!btns.length) return;
+  let idx = btns.indexOf(document.activeElement);
+  if (idx < 0) idx = 0;
+  idx = (idx + dir + btns.length) % btns.length;
+  btns[idx].focus();
+}
+addEventListener("keydown", e => {
+  const btns = overlayButtons();
+  if (!btns.length) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowup" || k === "arrowleft") { e.preventDefault(); e.stopPropagation(); overlayFocusMove(-1); }
+  else if (k === "arrowdown" || k === "arrowright") { e.preventDefault(); e.stopPropagation(); overlayFocusMove(1); }
+  else if (k === "enter" || k === " ") {
+    const cur = document.activeElement;
+    if (cur && btns.includes(cur)) { e.preventDefault(); e.stopPropagation(); cur.click(); }
+  } else if (k === "escape") {
+    const back = btns.find(b => /back|cancel|close|resume/i.test(b.textContent));
+    if (back) { e.preventDefault(); e.stopPropagation(); back.click(); }
+  }
+}, true);
+
+function hideOverlay() { const o=$("overlay"); if(o){ o.innerHTML=""; o.style.display="none"; o.dataset.nav=""; } if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); }
 
 function beginGame() {
   /* name entry removed — the hero keeps their name across runs (idea: no menu detour after death) */

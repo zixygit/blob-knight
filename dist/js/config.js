@@ -390,7 +390,7 @@ const META_UPGRADES = [                                 // idea 19: shrine meta-
 const STAMINA = { max: 100, dashCost: 40, regen: 30 };  // idea 14: stamina resource
 
 /* ---------- player settings (ideas 66/67/68/71/72) ---------- */
-const SETTINGS_KEY = "emberquest.settings";
+const SETTINGS_KEY = "blobknight.settings";
 /* idea 20: screen-size (zoom) presets — FIT, COZY, ZOOMED */
 const SCREEN_SIZES = { "0.9": { label: "COZY" }, "1": { label: "FIT" }, "1.1": { label: "ZOOMED" } };
 const DEFAULT_SETTINGS = {
