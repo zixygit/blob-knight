@@ -7,14 +7,18 @@ test.describe("BLOB KNIGHT smoke", () => {
   test("fresh run: menu, start, kill, shop, next level", async ({ page }) => {
     await page.goto("http://localhost:8123/index.html");
 
-    /* menu renders with title + PLAY/CONTINUE/SETTINGS */
+    /* menu renders with title + PLAY/DIFFICULTY/SETTINGS/EXIT — difficulty hidden until click */
     await expect(page.locator("#overlay")).toBeVisible();
     await expect(page.getByText("BLOB", { exact: false }).first()).toBeVisible();
     await expect(page.locator(".btn", { hasText: "PLAY" })).toBeVisible();
-    await expect(page.locator(".btn", { hasText: "CONTINUE" })).toBeVisible();
+    await expect(page.locator(".btn", { hasText: "DIFFICULTY" })).toBeVisible();
     await expect(page.locator(".btn", { hasText: "SETTINGS" })).toBeVisible();
-    /* difficulty chips incl. the new GOD RUN */
+    await expect(page.locator(".btn", { hasText: "EXIT" })).toBeVisible();
+    await expect(page.locator(".diff-chip", { hasText: "GOD RUN" })).toBeHidden();
+    await page.locator(".btn", { hasText: "DIFFICULTY" }).click();
     await expect(page.locator(".diff-chip", { hasText: "GOD RUN" })).toBeVisible();
+    await page.locator(".btn", { hasText: "DIFFICULTY" }).click();
+    await expect(page.locator(".diff-chip", { hasText: "GOD RUN" })).toBeHidden();
 
     /* start a run (skip tutorial) */
     await page.evaluate(() => { STATS.runs = 1; beginGame(); });
@@ -68,9 +72,21 @@ test.describe("BLOB KNIGHT smoke", () => {
     expect(combo).toBeGreaterThanOrEqual(1);
     const window = await page.evaluate(() => G.comboT);
     expect(window).toBeGreaterThan(0);
-    /* damage ramp: playerDamage scales with combo */
-    const dmg = await page.evaluate(() => { G.combo = 12; G.comboT = 1; return game.playerDamage().d; });
-    const base = await page.evaluate(() => { G.combo = 0; return game.playerDamage().d; });
+    /* damage ramp: playerDamage scales with combo — deterministic */
+    const dmg = await page.evaluate(() => {
+      G.combo = 12; G.comboT = 1; G.crit = 0;
+      const orig = Math.random; Math.random = () => 0.5;
+      const d = game.playerDamage().d;
+      Math.random = orig;
+      return d;
+    });
+    const base = await page.evaluate(() => {
+      G.combo = 0; G.crit = 0;
+      const orig = Math.random; Math.random = () => 0.5;
+      const d = game.playerDamage().d;
+      Math.random = orig;
+      return d;
+    });
     expect(dmg).toBeGreaterThan(base);
   });
 

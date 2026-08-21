@@ -42,6 +42,23 @@ const G = {
   level: 1, door: null, loot: [], bossSpawned: false, minionsLeft: 0, loreNotes: [],
 };
 
+function canIncreaseMaxHp() { return !(G.difficulty === "extreme" && G.extremeMaxLocked); }
+
+// God Run perk system — unlock order 3 → 4 → 1 → 2, only active in God Run
+const GODRUN_PERKS = {
+  3: { name: "SWORD BOUNCE", desc: "Sword projectiles bounce off walls/enemies", icon: "🔄", order: 1 },
+  4: { name: "FAST ATTACKS", desc: "+35% attack speed", icon: "⚡", order: 2 },
+  1: { name: "ONE-HIT SHIELD", desc: "1 shield every 5s, absorbs one hit", icon: "🛡️", order: 3 },
+  2: { name: "360° SLASH", desc: "Full surrounding sword attack", icon: "🌀", order: 4 },
+};
+const GODRUN_ORDER = [3,4,1,2];
+const GODRUN_KEY = "blobknight.godperks";
+function loadGodPerks(){ try{ const r=localStorage.getItem(GODRUN_KEY); if(r) return JSON.parse(r);}catch(e){} return {unlocked:[], level:0}; }
+let GOD_PERKS = loadGodPerks();
+function saveGodPerks(){ try{ localStorage.setItem(GODRUN_KEY, JSON.stringify(GOD_PERKS)); }catch(e){} }
+function isGodPerkUnlocked(id){ return GOD_PERKS.unlocked.includes(id); }
+function nextGodPerk(){ return GODRUN_ORDER[GOD_PERKS.unlocked.length] || null; }
+
 const game = {
   G,
   player: null,
@@ -139,6 +156,34 @@ game.G.bossSpawned = false;
   Object.assign(game, {
     obstacles: world.obstacles, hazards: world.hazards, traps: world.traps, crates: world.crates, shrine: world.shrine,
   });
+  // Previous bosses as NPCs in later stages — only after defeating
+  try{
+    G.defeatedBosses = G.defeatedBosses || JSON.parse(localStorage.getItem("blobknight.defeated") || "[]");
+    if (G.level > 1 && G.defeatedBosses.length > 0) {
+      const candidates = G.defeatedBosses.filter(k => !k.startsWith(`${n}:`)).slice(-2);
+      for (const key of candidates) {
+        const lvl = parseInt(key.split(":")[0]);
+        const bossDef = LEVELS[lvl] ? LEVELS[lvl].boss : null;
+        if (bossDef) {
+          const npc = new Enemy(Object.assign({}, bossDef, { name: bossDef.name + " (Ally)", isBoss: false, hp: 1, maxHp: 1, speed: 0 }), world.shrine ? world.shrine.x + rand(-60,60) : rand(120, CFG.W-120), world.shrine ? world.shrine.y + rand(-40,40) : rand(120, CFG.H-120));
+          npc.isNPC = true;
+          npc.npcName = bossDef.name;
+          npc.originalColor = bossDef.color;
+          // NPC behavior: idle, no attack, recognizable but friendly
+          const origUpdate = npc.update.bind(npc);
+          npc.update = function(dt, game) {
+            this.hurtT = Math.max(0, this.hurtT - dt);
+            // gentle bobbing
+            this.y += Math.sin(game.time * 1.5 + this.x) * 0.15;
+            // never attack, just idle
+          };
+          npc.clamp = function(){ this.x = clamp(this.x, CFG.MARGIN, CFG.W - CFG.MARGIN); this.y = clamp(this.y, CFG.MARGIN, CFG.H - CFG.MARGIN); };
+          game.enemies.push(npc);
+        }
+      }
+      if (candidates.length > 0) flash(`Allies from past victories appear`, "#6bff9a");
+    }
+  }catch(e){}
   /* idea 48: combat path bonus — drop loot on entry */
   if (G.branchBonus === "combat" && n >= 3) {
     for (let i = 0; i < 3; i++) {
@@ -290,7 +335,7 @@ function checkLevelUp() {
   G.playerLevel++;
   const cards = [
     { label: "💪 +5 ATK", fn: () => { G.atk += 5; } },
-    { label: "❤️ +25 MAX HP", fn: () => { G.maxHp += 25; G.hp += 25; } },
+    { label: "❤️ +25 MAX HP", fn: () => { if (!canIncreaseMaxHp()) { flash("Max HP locked on EXTREME", "#9a90b8"); return; } G.maxHp += 25; G.hp += 25; } },
     { label: "🍀 +5% CRIT", fn: () => { G.crit += 0.05; } },
     { label: "⚡ +30 STAMINA", fn: () => { STAMINA.max += 30; } },
     { label: "🛡️ +3 DEF", fn: () => { G.def += 3; } },
@@ -345,6 +390,15 @@ function hurtEnemy(e, dmg, kx, ky, opts = {}) {
 
 function damagePlayer(d, sx, sy, fx) {
   if (G.godMode || G.phase !== "play") return;
+  /* God Run perk 1: One-Hit Shield — absorbs one attack, 5s cooldown */
+  if (G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(1) && G.godShield > 0) {
+    G.godShield = 0;
+    G.godShieldCd = 5.0;
+    flash("🛡️ SHIELD BLOCKED!", "#6fc3ff");
+    game.effects.push({ type: "hit", x: game.player.x, y: game.player.y - 14, t: 0.4, txt: "BLOCKED", color: "#6fc3ff" });
+    SFX.shield();
+    return;
+  }
   /* idea 4: post-hit invincibility — brief grace window so clusters don't stunlock */
   if (G.invulnT > 0) return;
   if (game.player.dashT > 0) return;                       // dash i-frames
@@ -469,6 +523,13 @@ function killEnemy(e, silent) {
   checkAchievements();
   if (e.isBoss) {
     G.gold += LEVELS[G.level].bossReward;
+    // track defeated bosses for NPCs in later stages
+    G.defeatedBosses = G.defeatedBosses || [];
+    const bossKey = `${G.level}:${e.name}`;
+    if (!G.defeatedBosses.includes(bossKey)) {
+      G.defeatedBosses.push(bossKey);
+      try{ localStorage.setItem("blobknight.defeated", JSON.stringify(G.defeatedBosses)); }catch(e){}
+    }
     game.G.door.open = true;
     game.G.loot.push(new Pickup("potion", e.x, e.y));
     game.shake = Math.max(game.shake, 0.3);
@@ -508,7 +569,7 @@ function pickup(l) {
   switch (l.type) {
     case "gold":   G.gold += Math.round(l.v * (G.goldMult || 1)); flash(`+${l.v} gold`, "#ffd166"); break;
     case "potion": G.potions++; flash("+1 potion", "#6bff9a"); break;
-    case "herb":   G.maxHp += 8; G.hp += 8; flash("Max HP +8", "#6bff9a"); break;
+    case "herb":   if (!canIncreaseMaxHp()) { flash("Max HP locked on EXTREME", "#9a90b8"); break; } G.maxHp += 8; G.hp += 8; flash("Max HP +8", "#6bff9a"); break;
     case "stone":  {                                    // idea 13: upgrades the equipped weapon
       const w = game.secondary || "sword";
       G.wLevels[w] = (G.wLevels[w] || 1) + 1;
@@ -665,6 +726,16 @@ function update(dt) {
   G.comboT = Math.max(0, G.comboT - dt);                       // idea 10
   if (G.comboT <= 0) G.combo = 0;
   G.invulnT = Math.max(0, (G.invulnT || 0) - dt);              // idea 4: grace window tick
+  // God Run perk 1: shield regen every 5s
+  if (G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(1) && G.godShieldCd > 0) {
+    G.godShieldCd = Math.max(0, G.godShieldCd - dt);
+    if (G.godShieldCd === 0 && G.godShield === 0) {
+      G.godShield = 1;
+      flash("🛡️ SHIELD READY!", "#6fc3ff");
+      SFX.pickup();
+      renderHUD();
+    }
+  }
   for (const a of game.arcs || []) a.t -= dt;                  // idea 7: slash afterimages
   game.arcs = (game.arcs || []).filter(a => a.t > 0);
   if (game.player) {
@@ -955,7 +1026,7 @@ function update(dt) {
     } else if (G.gold >= 50) {
       G.gold -= 50; flash("SHRINE: -50G", "#ff8b3d");
     } else {
-      G.hp = Math.max(1, G.hp - 15); G.maxHp += 10; flash("SHRINE: -15 HP → +10 MAX", "#6bff9a");
+      G.hp = Math.max(1, G.hp - 15); if (canIncreaseMaxHp()) { G.maxHp += 10; flash("SHRINE: -15 HP → +10 MAX", "#6bff9a"); } else { flash("Max HP locked on EXTREME", "#9a90b8"); }
     }
     game.effects.push({ type: "boom", x: sh.x, y: sh.y, t: 0.5 });
     renderHUD();
@@ -1138,6 +1209,17 @@ function winGame() {
   if (G.bossRush) STATS.unlocked["bossrush"] = true;
   saveStats();
   checkAchievements();
+  // God Run perk unlock — Normal wins unlock in order 3 → 4 → 1 → 2, only for God Run
+  if (G.difficulty === "normal") {
+    const next = nextGodPerk();
+    if (next) {
+      GOD_PERKS.unlocked.push(next);
+      saveGodPerks();
+      const perk = GODRUN_PERKS[next];
+      flash(`🏆 GOD RUN PERK UNLOCKED: ${perk.icon} ${perk.name}!`, "#ffd166");
+      SFX.levelup();
+    }
+  }
   /* idea 86: ending epilogue varies by performance */
   const grade = G.grade || "C";
   const tier =
@@ -1268,7 +1350,7 @@ function nextLevel() {
   rerolled = false;   // merchant discount lasts one visit
   const n = G.level + 1;
   if (n > MAX_LEVEL) return winGame();
-  G.sword++; G.atk += 3; G.maxHp += 20; G.hp = G.maxHp; G.potions++;
+  G.sword++; G.atk += 3; if (canIncreaseMaxHp()) { G.maxHp += 20; G.hp = G.maxHp; } else { G.hp = Math.min(G.maxHp, G.hp + 20); } G.potions++;
   G.slowT = 0;
   setupLevel(n);
   G.phase = "play";
@@ -1311,11 +1393,26 @@ function openOptions() {
     { label: `⬅️ BACK`, fn: G.phase === "paused" ? openPauseMenu : resetGame },
   ]);
 }
+function showGodPerks() {
+  const order = GODRUN_ORDER;
+  const rows = order.map(id => {
+    const perk = GODRUN_PERKS[id];
+    const unlocked = isGodPerkUnlocked(id);
+    const next = nextGodPerk();
+    const isNext = next === id && !unlocked;
+    const status = unlocked ? `✅ UNLOCKED — Active in God Run` : isNext ? `🔓 NEXT — Complete Normal to unlock` : `🔒 LOCKED — Unlock ${GODRUN_PERKS[next]?.name || "previous"} first`;
+    const active = unlocked && G.difficulty === "godrun" ? " (ACTIVE NOW)" : "";
+    return `${perk.icon} <b>${perk.name}</b> — ${perk.desc}<br><span style="color:${unlocked ? "#6bff9a" : isNext ? "#ffd166" : "#9a90b8"}">${status}${active}</span>`;
+  }).join("<br><br>");
+  const progress = `Progress: ${GOD_PERKS.unlocked.length}/4 — Order: 3 → 4 → 1 → 2<br><br>`;
+  showOverlay("🌀 GOD RUN PERKS", progress + rows, "⬅ BACK", resetGame);
+}
 function openPauseMenu() {
   showOverlay("⏸ PAUSED", "", null, null, [
     { label: "▶ RESUME", fn: resumePaused, primary: true },
     { label: "🔄 RESTART LEVEL", fn: () => { setupLevel(G.level); resumePaused(); } },
     { label: "🔄 RESTART RUN", fn: restartRun },
+    { label: "🌀 GOD RUN PERKS", fn: showGodPerks },
     { label: "⚙️ OPTIONS", fn: openOptions },
     { label: "⚙️ DIFFICULTY", fn: openDifficultyMenu },
     { label: "❓ HELP", fn: showHelp },
@@ -1460,10 +1557,10 @@ function resetGame() {
   const firstRun = statsRuns() === 0;
   const buttons = [
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
-    { label: "📖 CONTINUE", fn: continueRun, note: "Resume last run" },
     { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
+    { label: "🌀 GOD RUN PERKS", fn: showGodPerks, note: `${GOD_PERKS.unlocked.length}/4 unlocked` },
     { label: "⚙️ SETTINGS", fn: openOptions },
-    { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); } },
+    { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(()=> { try{ window.close(); }catch(e){} }, 400); } },
   ];
   showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
   /* difficulty panel — hidden until DIFFICULTY is clicked, expands directly underneath */
@@ -1556,7 +1653,18 @@ function showOverlay(title, body, btnLabel, btnFn, buttons, addName) {
 
 function overlayButtons() {
   const o = $("overlay");
-  return o && o.dataset.nav === "1" ? [...o.querySelectorAll("button.btn")].filter(b => !b.disabled) : [];
+  if (!o || o.dataset.nav !== "1") return [];
+  return [...o.querySelectorAll("button.btn")].filter(b => {
+    if (b.disabled) return false;
+    // only visible buttons — hidden difficulty options should not block navigation
+    if (b.offsetParent === null) return false;
+    const cs = getComputedStyle(b);
+    if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return false;
+    // also check parent diffPanel visibility
+    const panel = document.getElementById("diffPanel");
+    if (panel && panel.contains(b) && panel.style.display === "none") return false;
+    return true;
+  });
 }
 function overlayFocusMove(dir) {
   const btns = overlayButtons();
@@ -1599,8 +1707,16 @@ function beginGame() {
   G.gold += meta.gold * 50;
   G.potions += meta.potion;
   G.crit += meta.crit * 0.05;
-  /* idea: extreme / god-run difficulties — start with only 2 HP */
-  if (G.difficulty === "extreme" || G.difficulty === "godrun") { G.maxHp = 2; G.hp = 2; }
+  /* second-last difficulty (extreme) — fixed 30 HP, no max increase; godrun — 2 HP */
+  if (G.difficulty === "extreme") { G.maxHp = 30; G.hp = 30; G.extremeMaxLocked = true; }
+  else if (G.difficulty === "godrun") { G.maxHp = 2; G.hp = 2; }
+  // God Run perks — only active if unlocked, in order 3→4→1→2
+  if (G.difficulty === "godrun") {
+    if (isGodPerkUnlocked(4)) G.asMult = (G.asMult || 1) * 0.65; // Fast Attacks: 35% faster
+    if (isGodPerkUnlocked(1)) { G.godShield = 1; G.godShieldCd = 0; G.godShieldMax = 1; }
+    if (isGodPerkUnlocked(2)) G.has360Slash = true;
+    // Sword Bounce (3) handled in projectile update
+  }
   renderHUD();
   SFX.unlock();
   SFX.levelup();

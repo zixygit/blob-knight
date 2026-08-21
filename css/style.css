@@ -128,19 +128,43 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 .menu-secret{font-size:12px}
 .skip-hint{display:block;margin-top:8px;font-size:11px;color:#6bff9a;letter-spacing:1px}
 
-/* main menu: single vertical column, clean consistent layout */
+/* main menu: professional vertical layout — title at top, menu centered */
 #overlay.main-menu{
   display:flex;
   flex-direction:column;
   align-items:center;
-  gap:10px;
   justify-content:flex-start;
-  padding-top:24px;
+  padding: 28px 20px 20px;
+  gap:0;
+  overflow-y:auto;
 }
-#overlay.main-menu h2{align-self:center}
-#overlay.main-menu > p{align-self:center}
+#overlay.main-menu h2{
+  font-size:40px;
+  letter-spacing:10px;
+  margin-bottom:6px;
+  text-align:center;
+  line-height:1.1;
+  text-shadow:0 0 20px rgba(255,120,71,.4);
+}
+#overlay.main-menu > p{
+  font-size:14px;
+  margin-bottom:28px;
+  text-align:center;
+  opacity:.9;
+}
+#overlay.main-menu .btn{
+  width:100%;
+  max-width:340px;
+  height:50px;
+  font-size:14px;
+  font-weight:600;
+  letter-spacing:1.2px;
+  margin:0;
+  flex-shrink:0;
+}
+#overlay.main-menu .btn:first-of-type{margin-top:auto}
+#overlay.main-menu .btn:last-of-type{margin-bottom:auto}
 #overlay.main-menu input{align-self:center}
-#overlay.main-menu .btn{width:100%;max-width:360px;justify-self:center}
 .btn{
   font-family:inherit;font-size:13px;letter-spacing:1px;cursor:pointer;background:#241c3a;
   color:#e8e3f5;border:1px solid #3b2f5e;border-radius:8px;padding:10px 20px;transition:.15s;
@@ -149,10 +173,28 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 .btn:hover{background:#322649;border-color:#ff7847}
 .btn:active{background:#2a1f45;border-color:#ffb45e;transform:translateY(1px)}   /* idea 3: pressed state */
 .btn:focus,.btn:focus-visible{outline:3px solid #6c8cff;outline-offset:2px;background:#322649}
-/* main-menu difficulty chips */
-.menu-diff{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:2px;grid-column:1/-1}
-.diff-chip{width:auto;flex:0 0 auto;padding:6px 14px;font-size:11px;letter-spacing:1.5px;text-align:center}
-.diff-chip.on{background:#3a2c5a;border-color:#6fc3ff;color:#fff}
+/* main-menu difficulty panel — hidden until DIFFICULTY clicked, expands under button */
+.menu-diff{
+  display:none;
+  flex-direction:column;
+  gap:8px;
+  width:100%;
+  max-width:340px;
+  margin:6px 0;
+  align-items:center;
+}
+.menu-diff[style*="display: flex"], .menu-diff[style*="display:flex"]{
+  display:flex !important;
+}
+.diff-chip{
+  width:100%;
+  padding:10px 14px;
+  font-size:12px;
+  letter-spacing:1.2px;
+  text-align:center;
+  justify-content:center;
+}
+.diff-chip.on{background:#3a2c5a;border-color:#6fc3ff;color:#fff;box-shadow:0 0 12px rgba(111,195,255,.3)}
 #overlay input{
   font-family:inherit;font-size:14px;letter-spacing:2px;text-transform:uppercase;
   background:#241c3a;color:#e8e3f5;border:1px solid #3b2f5e;border-radius:8px;
@@ -183,44 +225,46 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
 }
 #tutHint.show{display:block}
 
-/* ---------- idea 70: touch controls ---------- */
+/* ---------- idea 70: touch controls — Brawlhalla-inspired: joy lower-left, actions lower-right ---------- */
 #touchControls{position:fixed;inset:0;pointer-events:none;z-index:14;display:none;touch-action:none}
-/* big floating joystick zone: the left half of the screen */
 #joyZone{
-  position:absolute;left:0;bottom:0;width:60%;height:78%;
+  position:absolute;left:0;bottom:0;width:38%;height:42%;
   pointer-events:auto;touch-action:none;
 }
 #joyBase{
-  position:absolute;left:18px;bottom:150px;width:140px;height:140px;border-radius:50%;
-  border:2px solid rgba(155,144,184,.4);background:rgba(13,11,20,.35);
+  position:absolute;left:28px;bottom:32px;width:132px;height:132px;border-radius:50%;
+  border:2px solid rgba(155,144,184,.45);background:rgba(13,11,20,.38);
+  box-shadow:0 4px 18px rgba(0,0,0,.3);
 }
 #joyKnob{
-  position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;
-  background:rgba(111,195,255,.5);transform:translate(-50%,-50%);transition:transform .04s;
+  position:absolute;left:50%;top:50%;width:56px;height:56px;border-radius:50%;
+  background:rgba(111,195,255,.55);transform:translate(-50%,-50%);transition:transform .06s;
+  box-shadow:0 2px 10px rgba(111,195,255,.3);
 }
 .touchBtns{
-  position:absolute;right:12px;bottom:16px;display:grid;gap:9px;
-  grid-template-columns:repeat(2,66px);grid-template-rows:repeat(4,58px);
+  position:absolute;right:22px;bottom:22px;display:grid;gap:12px;
+  grid-template-columns:repeat(2,72px);grid-template-rows:repeat(4,62px);
   pointer-events:auto;
 }
 .tbtn{
-  width:66px;height:58px;border-radius:16px;border:2px solid #3b2f5e;
-  background:rgba(36,28,58,.82);color:#e8e3f5;font-size:22px;cursor:pointer;
+  width:72px;height:62px;border-radius:18px;border:2px solid #3b2f5e;
+  background:rgba(36,28,58,.88);color:#e8e3f5;font-size:23px;cursor:pointer;
   touch-action:none;user-select:none;-webkit-user-select:none;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:0 4px 14px rgba(0,0,0,.35);
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
 }
-.tbtn:active{background:#3a2c5a;transform:scale(.92)}
+.tbtn:active{background:#3a2c5a;transform:scale(.93)}
 #tAttack{
-  grid-column:1 / span 2;grid-row:4;width:100%;height:64px;border-radius:32px;font-size:28px;
-  background:rgba(20,32,48,.9);border-color:#2f4a68;
+  grid-column:1 / span 2;grid-row:4;width:100%;height:68px;border-radius:34px;font-size:30px;
+  background:rgba(20,32,48,.94);border-color:#2f4a68;
+  box-shadow:0 6px 20px rgba(0,0,0,.45);
 }
 #tSecondary{grid-column:2;grid-row:2}
 #tDash{grid-column:2;grid-row:3}
 #tPotion{grid-column:1;grid-row:2}
 #tBomb{grid-column:1;grid-row:3}
-#tCycle{grid-column:2;grid-row:1;font-size:18px}
-#tPause{grid-column:1;grid-row:1;font-size:18px}
+#tCycle{grid-column:2;grid-row:1;font-size:19px}
+#tPause{grid-column:1;grid-row:1;font-size:19px}
 
 .merchant{color:#ffd166;font-style:italic;display:block;margin-top:6px;font-size:13px}
 
@@ -253,16 +297,16 @@ canvas{display:block;width:100%;height:100%;background:#1a1428;touch-action:none
   #bossBar{top:calc(var(--hudH) + 6px);width:min(82%,420px);z-index:7}
   #overlay h2{font-size:22px}
   #overlay p{font-size:12px}
-  #joyZone{width:62%;height:78%}
-  #joyBase{left:10px;bottom:150px;width:120px;height:120px}
-  #joyKnob{width:46px;height:46px}
+  #joyZone{width:40%;height:44%}
+  #joyBase{left:20px;bottom:24px;width:118px;height:118px}
+  #joyKnob{width:50px;height:50px}
   .touchBtns{
-    right:10px;bottom:12px;gap:14px;
-    grid-template-columns:repeat(3,64px);grid-template-rows:repeat(4,52px);
+    right:14px;bottom:14px;gap:12px;
+    grid-template-columns:repeat(3,68px);grid-template-rows:repeat(4,56px);
   }
   .tbtn{
-    width:64px;height:52px;font-size:20px;border-radius:16px;
-    border-color:rgba(140,124,190,.45);background:rgba(36,28,58,.55);
+    width:68px;height:56px;font-size:21px;border-radius:18px;
+    border-color:rgba(140,124,190,.5);background:rgba(36,28,58,.62);
   }
   #tAttack{
     grid-column:1 / span 2;grid-row:4;width:100%;height:56px;border-radius:28px;

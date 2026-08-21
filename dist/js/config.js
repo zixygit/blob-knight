@@ -358,14 +358,14 @@ const PERKS = [                                             // idea 12: perk dro
   { name: "SWIFT",     desc: "+15% move speed",     apply: () => { CFG.PLAYER.speed *= 1.15; } },
   { name: "BLOODTHIRST", desc: "Lifesteal 6%",      apply: () => { G.lifesteal = (G.lifesteal || 0) + 0.06; } },
   { name: "REAPER",    desc: "+10% crit chance",    apply: () => { G.crit += 0.10; } },
-  { name: "BULWARK",   desc: "+20 max HP",          apply: () => { G.maxHp += 20; G.hp += 20; } },
+  { name: "BULWARK",   desc: "+20 max HP",          apply: () => { if (typeof canIncreaseMaxHp === "function" && !canIncreaseMaxHp()) return; G.maxHp += 20; G.hp += 20; } },
   { name: "GREED",     desc: "+25% gold gained",    apply: () => { G.goldMult = (G.goldMult || 1) * 1.25; } },
   { name: "RECKLESS",  desc: "+25% damage, -10 HP", apply: () => { G.atk += 3; G.maxHp -= 10; G.hp = Math.min(G.hp, G.maxHp); } },
   { name: "SHIELDED",  desc: "+25 shield HP",       apply: () => { G.shieldMax += 25; G.shield += 25; } },
 ];
 
 const ARTIFACTS = [                                     // idea 16: one passive trinket
-  { name: "EMBER HEART", desc: "+30 max HP",           apply: () => { G.maxHp += 30; G.hp += 30; } },
+  { name: "EMBER HEART", desc: "+30 max HP",           apply: () => { if (typeof canIncreaseMaxHp === "function" && !canIncreaseMaxHp()) return; G.maxHp += 30; G.hp += 30; } },
   { name: "VOID SHARD",  desc: "+12% crit chance",     apply: () => { G.crit += 0.12; } },
   { name: "THORN PACT",  desc: "Reflect 25% damage",   apply: () => { G.thorns = 0.25; } },
   { name: "PHOENIX GEM", desc: "Revive once per run",  apply: () => { G.revives = 1; } },
@@ -374,8 +374,8 @@ const ARTIFACTS = [                                     // idea 16: one passive 
 ];
 
 const CLASSES = [                                       // idea 20: starting classes
-  { name: "KNIGHT", icon: "🛡️", desc: "+30 HP, +3 DEF, +1 potion", apply: () => { G.maxHp += 30; G.hp += 30; G.def += 3; G.potions += 1; } },
-  { name: "RANGER", icon: "🏹", desc: "+12% crit, +15% speed, +1 herb", apply: () => { G.crit += 0.12; CFG.PLAYER.speed *= 1.15; G.maxHp += 8; G.hp += 8; } },
+  { name: "KNIGHT", icon: "🛡️", desc: "+30 HP, +3 DEF, +1 potion", apply: () => { if (typeof canIncreaseMaxHp === "function" && !canIncreaseMaxHp()) { G.def += 3; G.potions += 1; return; } G.maxHp += 30; G.hp += 30; G.def += 3; G.potions += 1; } },
+  { name: "RANGER", icon: "🏹", desc: "+12% crit, +15% speed, +1 herb", apply: () => { G.crit += 0.12; CFG.PLAYER.speed *= 1.15; if (typeof canIncreaseMaxHp === "function" && !canIncreaseMaxHp()) return; G.maxHp += 8; G.hp += 8; } },
   { name: "MAGE",    icon: "🔥", desc: "+5 ATK, starts with Ember Staff", apply: () => { G.atk += 5; if (!game.weapons.includes("staff")) game.weapons.push("staff"); game.secondary = "staff"; } },
 ];
 

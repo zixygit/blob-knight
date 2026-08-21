@@ -3,10 +3,37 @@
    ============================================================ */
 "use strict";
 
-/* Sword: arc slash in facing direction */
+/* Sword: arc slash in facing direction — God Run perk 2: 360° slash */
 function attackSword(game) {
+  const is360 = G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(2);
   const p = game.player;
   game.arcs = game.arcs || [];
+  if (is360) {
+    // 360° slash — full surrounding, with distinct visual
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) game.arcs.push({ ang: a, t: 0.35 });
+    if (game.arcs.length > 8) game.arcs.splice(0, game.arcs.length - 8);
+    game.effects.push({ type: "ring", x: p.x, y: p.y, r: CFG.SWORD_RANGE + 6, t: 0.3, color: "#ffd166" });
+    for (const e of [...game.enemies]) {
+      const d = dist(p, e);
+      if (d < CFG.SWORD_RANGE + 14 + e.r) {
+        const hit = game.playerDamage();
+        const ang = Math.atan2(e.y - p.y, e.x - p.x);
+        game.hurtEnemy(e, Math.round(hit.d * 0.9),
+          Math.cos(ang) * 12, Math.sin(ang) * 12,
+          { knock: 0.3, crit: hit.crit, color: "#ffd166", hitStop: 0.06 });
+        if (G.comboT > 0) G.combo = Math.min(12, G.combo + 1);
+        else G.combo = 1;
+        G.comboT = 1.6;
+      }
+    }
+    SFX.hit();
+    // slight cooldown balance for 360
+    game.player.attackCd = (WEAPONS.sword.cd * 1.3) * (G.asMult || 1);
+    game.player.swing = 0.4;
+    game.parryT = 0.22;
+    if (typeof STATS !== "undefined") STATS.weaponUses["sword"] = (STATS.weaponUses["sword"] || 0) + 1;
+    return;
+  }
   game.arcs.push({ ang: p.dir, t: 0.25 });           // idea 7: slash afterimage
   if (game.arcs.length > 3) game.arcs.shift();       // keep last 3
   for (const e of [...game.enemies]) {   // copy: kills splice the live array

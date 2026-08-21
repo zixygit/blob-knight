@@ -513,9 +513,52 @@ class Enemy {
         }
       }
     }
+    // New unique boss patterns — distinct, telegraphed, counterable
+    this.updateNewPatterns(dt, game);
     /* idea 18: per-boss signature mechanics — each depth's boss fights differently */
     const mechs = Array.isArray(b.mech) ? b.mech : (b.mech ? [b.mech] : []);
     for (const m of mechs) this.runMech(m, dt, game, b);
+  }
+
+  // New unique patterns: telegraphed slam, homing orb, cross beam
+  updateNewPatterns(dt, game) {
+    const p = game.player;
+    const b = this.boss;
+    // Delayed Hammer — telegraphed AOE that forces movement
+    this.hammerT = (this.hammerT || 0) - dt;
+    if (this.hammerT === undefined) this.hammerT = 4.5;
+    if (this.hammerT <= 0) {
+      this.hammerT = 5.5;
+      this.hammerTelegraph = 1.0;
+      game.flash(`${this.name} raises its hammer!`, "#ffd166");
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 30, t: 1.0, color: "#ffd166" });
+      game.SFX && game.SFX.boss();
+    }
+    if (this.hammerTelegraph > 0) {
+      this.hammerTelegraph -= dt;
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 30 + (1.0 - this.hammerTelegraph)*40, t: 0.08, color: "#ffd166" });
+      if (this.hammerTelegraph <= 0) {
+        // slam — large AOE, must move away
+        game.shake = Math.max(game.shake, 0.4);
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.5 });
+        for (let i = 0; i < 16; i++) {
+          const ang = (i/16)*Math.PI*2;
+          game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang)*220, Math.sin(ang)*220, 6, rand(7,11), "#ffd166"));
+        }
+        if (dist(this, p) < 120) game.damagePlayer(rand(10,15), this.x, this.y);
+      }
+    }
+    // Homing Orb — slow orb that follows player, punishes staying still
+    this.homingT = (this.homingT || 0) - dt;
+    if (this.homingT <= 0) {
+      this.homingT = 7;
+      game.flash(`${this.name} summons a homing orb!`, "#c084fc");
+      const orb = new Projectile("enemy", this.x, this.y, 0, 0, 10, rand(8,12), "#c084fc", { homing: true });
+      orb.homing = true;
+      orb.ttl = 6;
+      game.projectiles.push(orb);
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: 16, t: 0.6, color: "#c084fc" });
+    }
   }
 
   runMech(m, dt, game, b) {
@@ -676,8 +719,34 @@ class Projectile {
         if (dist(this, p) < 24) return true;   // caught
       }
     }
+    // Homing orb — new boss pattern
+    if (this.homing) {
+      const p = game.player;
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      const homingStrength = 180;
+      this.vx += Math.cos(ang) * homingStrength * dt;
+      this.vy += Math.sin(ang) * homingStrength * dt;
+      const sp = Math.hypot(this.vx, this.vy);
+      if (sp > 260) { this.vx = this.vx / sp * 260; this.vy = this.vy / sp * 260; }
+      if (Math.random() < 0.15) game.effects.push({ type: "trail", x: this.x, y: this.y, t: 0.2, color: "#c084fc", r: 5 });
+    }
     this.ttl -= dt;
-    if (this.x < 0 || this.x > CFG.W || this.y < 0 || this.y > CFG.H) this.ttl = 0;
+    // God Run perk 3: Sword Bounce — player projectiles bounce
+    const canBounce = G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(3) && this.team === "player";
+    if (this.x < 0 || this.x > CFG.W || this.y < 0 || this.y > CFG.H) {
+      if (canBounce && this.ttl > 0.5) {
+        if (this.x < 0 || this.x > CFG.W) this.vx = -this.vx * 0.95;
+        if (this.y < 0 || this.y > CFG.H) this.vy = -this.vy * 0.95;
+        this.x = clamp(this.x, 0, CFG.W);
+        this.y = clamp(this.y, 0, CFG.H);
+        this.bounces = (this.bounces || 0) + 1;
+        if (this.bounces > 3) this.ttl = 0;
+        else {
+          game.effects.push({ type: "spark", x: this.x, y: this.y, vx: (Math.random()-0.5)*60, vy: (Math.random()-0.5)*60, t: 0.2, color: "#ffd166" });
+          SFX.hit();
+        }
+      } else this.ttl = 0;
+    }
     if (this.ttl <= 0) return true; // remove
 
     /* idea 52: bomb fuse countdown then area boom */
