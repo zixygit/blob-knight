@@ -318,6 +318,32 @@ function attackLeech(game) {
   }
 }
 
+/* Phantom Saber — the swing IS the step: a spectral lunge that carries the
+   player through danger with i-frames, cutting everything along the path */
+function attackSaber(game) {
+  const p = game.player;
+  const x0 = p.x, y0 = p.y;
+  const L = 90;   // dash covers ~80px; the blade reaches a little further
+  /* borrow the dash: brief i-frames + trail, aimed at the swing */
+  p.dashT = Math.max(p.dashT, 0.15);
+  p.dashAng = p.dir;
+  game.arcs.push({ ang: p.dir, t: 0.22, arc: 1.1, r: 30, color: "#c0a8f0" });
+  /* cut every foe along the lunge line (point-to-segment distance) */
+  const dxs = Math.cos(p.dir), dys = Math.sin(p.dir);
+  for (const e of [...game.enemies]) {
+    const ex = e.x - x0, ey = e.y - y0;
+    const t = Math.max(0, Math.min(L, ex * dxs + ey * dys));
+    const cx = x0 + dxs * t, cy = y0 + dys * t;
+    if (Math.hypot(e.x - cx, e.y - cy) < 30 + e.r) {
+      const hit = game.playerDamage();
+      game.hurtEnemy(e, Math.round(hit.d * 0.8), dxs * 10, dys * 10, { knock: 0.22, crit: hit.crit, color: "#c0a8f0" });
+      comboTick();
+    }
+  }
+  for (let i = 0; i < 4; i++)
+    game.effects.push({ type: "spark", x: x0 + dxs * (18 + i * 18), y: y0 + dys * (18 + i * 18), vx: dxs * 60, vy: dys * 60, t: 0.18, color: "#c0a8f0" });
+}
+
 /* Echo Blade (secret) — the swing keeps going: a spectral slash flies the arc */
 function attackEcho(game) {
   const p = game.player;
@@ -447,6 +473,7 @@ const WEAPON_ATTACKS = {
   hammer: attackHammer,
   leech: attackLeech,
   echo: attackEcho,
+  saber: attackSaber,
   lspear: attackLSpear,
   chakram: attackChakram,
   bow: attackBow,

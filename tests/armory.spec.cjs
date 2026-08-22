@@ -261,7 +261,7 @@ test.describe("armory & merchant", () => {
     expect(res.lockExpires).toBeTruthy();
     expect(res.voidCoin.goldMult).toBeCloseTo(1.5);
     expect(res.voidCoin.enemyDmgMult).toBeCloseTo(1.15);
-    expect(res.enemyHit).toBe(12);
+    expect(res.enemyHit).toBe(16);   // 10 × void coin 1.15 × challenge 1.4
     expect(res.noDoubleBuy).toBeTruthy();
     expect(errs).toEqual([]);
   });
@@ -272,9 +272,10 @@ test.describe("armory & merchant", () => {
       STATS.runs = 1; beginGame();
       G.level = 3; G.gold = 2000; G.atk = 10;
       buyPowerPotion();
-      const dmgBuffed = playerDamage().d;
+      const roll = () => playerDamage().d;
+      const dmgBuffed = Math.max(...Array.from({ length: 25 }, roll));   // best of 25: the buff's ceiling dominates
       G.tempAtkT = 0;
-      const dmgPlain = playerDamage().d;
+      const dmgPlain = Math.max(...Array.from({ length: 25 }, roll));
       buySwiftPotion();
       G.tempSpdT = 0;
       buyLifestone(); buyLifestone(); buyLifestone();

@@ -529,6 +529,22 @@ function drawEnemies(game) {
       }
     }
 
+    // bolt maw: dashed hunger ring; swallowed shots orbit as motes
+    if (e.kind === "bolt_eater") {
+      ctx.strokeStyle = "rgba(168,140,255,0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.arc(0, 0, e.eatR || 74, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#a88cff";
+      ctx.shadowColor = "#a88cff"; ctx.shadowBlur = 6;
+      for (let i = 0; i < (e.fed || 0); i++) {
+        const a = game.time * 4 + i * 1.3;
+        ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 6), Math.sin(a) * (e.r + 6), 2.5, 0, 7); ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+
     // summoner: orbiting summoning motes
     if (e.kind === "summoner") {
       ctx.fillStyle = "#c084fc";

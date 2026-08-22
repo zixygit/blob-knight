@@ -75,11 +75,17 @@ test.describe("replayability", () => {
       G.level = 1; const shallow = stockAt(2002);
       res.shallowOk = shallow.ranged.every(w => (WEAPONS[w].unlock || 1) <= 2) && shallow.weapon.every(w => (WEAPONS[w].unlock || 1) <= 2);
       res.noSecret = !shallow.ranged.includes("echo") && !shallow.weapon.includes("echo");
-      /* ngPlus-only cursed stay hidden in a normal run, appear in NG+ */
-      G.level = 6; const normalCursed = stockAt(3003).cursed;
-      G.ngPlus = true; const ngCursed = stockAt(3003).cursed; G.ngPlus = false;
-      res.ngGating = !normalCursed.some(id => CURSED_ITEMS.find(c => c.id === id).ngPlusOnly)
-        && ngCursed.some(id => { const c = CURSED_ITEMS.find(x => x.id === id); return c && c.ngPlusOnly; });
+      /* ngPlus-only cursed stay hidden in a normal run, appear in NG+ (scan seeds) */
+      G.level = 6;
+      let normalClean = true, ngHasOne = false;
+      for (let s2 = 3000; s2 < 3012; s2++) {
+        const nc = stockAt(s2).cursed;
+        if (nc.some(id => CURSED_ITEMS.find(c => c.id === id).ngPlusOnly)) normalClean = false;
+        G.ngPlus = true;
+        if (stockAt(s2).cursed.some(id => { const c = CURSED_ITEMS.find(x => x.id === id); return c && c.ngPlusOnly; })) ngHasOne = true;
+        G.ngPlus = false;
+      }
+      res.ngGating = normalClean && ngHasOne;
       /* reroll rotates the shelf */
       G.runSeed = 4004; shopStock = null; stockSalt = 0; ensureShopStock();
       const before = JSON.stringify(shopStock.ranged);
@@ -385,9 +391,10 @@ test.describe("replayability", () => {
       /* second crown fires once near death */
       G.runSeed = 556; setupLevel(2);
       game.player.dropT = 0;   // setupLevel re-created the player mid drop-in
-      const boss = game.enemies.find(e => e.isBoss) || null;
-      if (!boss) { spawnBoss(); }
+      if (!game.enemies.some(e => e.isBoss)) spawnBoss();
       const b2 = game.enemies.find(e => e.isBoss);
+      for (let i = 0; i < 30; i++) update(0.05);   // play out the intro arrival beat
+      b2.bossState = "chase"; b2.bossStateT = 1;   // then examine threshold logic directly
       b2.hp = b2.maxHp * 0.10;
       const hpBefore = b2.hp;
       update(0.05);

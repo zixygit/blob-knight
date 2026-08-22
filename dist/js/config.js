@@ -18,6 +18,17 @@ const CFG = {
 
 const MAX_LEVEL = 16;   /* chapter two: the sundered depths (12-16) */
 
+/* global challenge tuning — the realm runs ~70% hotter than it used to.
+   Each dial stays moderate; together they compound to the target. */
+const CHALLENGE = {
+  hp: 1.4,        // minion health
+  dmg: 1.4,       // every point of enemy damage
+  speed: 1.06,    // minion pace
+  count: 1.25,    // dynamic squad sizes (authored spines untouched)
+  bossHp: 1.4,    // lord health
+  elite: 1.4,     // champion frequency
+};
+
 /* ---------- enemy archetypes (stats can be overridden per level) ---------- */
 const ENEMY_TYPES = {
   chaser:   { name: "SPINED GOBLIN", r: 13, speed: 90,  color: "#7a9e3d", dmg: [4, 7],   hp: 28, kind: "chaser" },
@@ -70,6 +81,8 @@ const ENEMY_TYPES = {
   rift_mage: { name: "RIFT MAGE", r: 13, speed: 60, color: "#a78bfa", dmg: [6, 10], hp: 36, kind: "rift_mage", portalCd: 9, spawnMax: 2 },
   executioner: { name: "EXECUTIONER", r: 18, speed: 45, color: "#1a1a2e", dmg: [14, 20], hp: 95, kind: "executioner", slamCd: 3.5, enrageHp: 0.5 },
   chain_beast: { name: "CHAIN BEAST", r: 16, speed: 70, color: "#8b5a2b", dmg: [7, 11], hp: 70, kind: "chain_beast", chainCd: 4.5, chainRange: 180 },
+  /* forces a real decision: it eats your shots and spits them back — swap to a blade */
+  bolt_eater: { name: "BOLT MAW", r: 14, speed: 78, color: "#7a5fd4", dmg: [5, 8], hp: 44, kind: "bolt_eater", eatR: 74 },
 };
 
 /* ---------- level layouts ---------- */
@@ -494,6 +507,7 @@ const WEAPONS = {
   hammer:    { name: "WAR HAMMER",   icon: "🔨", type: "melee",  cd: 1.15, cost: 320, unlock: 4, desc: "Slow · massive damage + knockback" },
   leech:     { name: "LEECH BLADE",  icon: "🩸", type: "melee",  cd: 0.52, cost: 340, unlock: 5, desc: "Heals 12% of damage dealt" },
   echo:      { name: "ECHO BLADE",   icon: "👻", type: "melee",  cd: 0.45, cost: 0,   unlock: 99, secret: true, desc: "Every swing releases a spectral slash" },
+  saber:     { name: "PHANTOM SABER", icon: "💫", type: "melee",  cd: 0.42, cost: 300, unlock: 3, desc: "Each swing carries you through the foe" },
   /* ranged — secondary hand */
   wave:      { name: "WAVE BLADE",   icon: "🌊", type: "ranged", cd: 1.30, cost: 150, unlock: 1, desc: "Shockwave burst" },
   crossbow:  { name: "CROSSBOW",     icon: "🎯", type: "ranged", cd: 0.28, cost: 200, unlock: 1, desc: "Fast bolts" },
@@ -571,7 +585,7 @@ const ENC_ROLES = {
   ranged:   { kinds: ["shooter", "freezer", "sniper", "acid", "drone", "trapper"] },
   swarm:    { kinds: ["swarm", "imp"] },
   assassin: { kinds: ["phantom", "assassin", "blink_assassin", "hunter"] },
-  control:  { kinds: ["charger", "shielder", "burrower", "guard", "mimic_knight", "plague_crawler", "chain_beast", "executioner"] },
+  control:  { kinds: ["charger", "shielder", "burrower", "guard", "mimic_knight", "plague_crawler", "chain_beast", "executioner", "bolt_eater"] },
   support:  { kinds: ["summoner", "healer", "commander", "rift_mage", "gazer", "siege_drone", "splitter", "tentacle"] },
 };
 /* when each foe enters the rotating pool */
@@ -581,7 +595,7 @@ const ENC_UNLOCK = {
   blink_assassin: 4, healer: 4, burrower: 4, sniper: 4,
   mimic_knight: 5, siege_drone: 5, acid: 5, drone: 5, assassin: 5, trapper: 5,
   plague_crawler: 6, gazer: 7, berserker: 7, hunter: 7, commander: 7, tentacle: 7,
-  rift_mage: 8, executioner: 8, chain_beast: 8,
+  rift_mage: 8, executioner: 8, chain_beast: 8, bolt_eater: 4,
 };
 /* hand-designed squads — early ones read at a glance, late ones stack archetypes */
 const ENC_ARCHETYPES = [

@@ -138,7 +138,7 @@ addEventListener("contextmenu", e => {
 /* chapter two: shared minion spawner — used by level setup AND wave reinforcements */
 function eliteChance() {
   const dark = G.mod && G.mod.eliteMult ? G.mod.eliteMult : 1;
-  return Math.min(0.30, (0.08 + G.level * 0.006 + (G.ngPlus ? 0.06 : 0)) * dark);
+  return Math.min(0.32, (0.08 + G.level * 0.006 + (G.ngPlus ? 0.06 : 0)) * dark * CHALLENGE.elite);
 }
 function spawnMinionList(list) {
   for (const m of list) {
@@ -172,6 +172,9 @@ function spawnMinionList(list) {
       const diff = DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal;
       if (diff.mult > 1) def.hp = Math.round(def.hp * (1 + (diff.mult - 1) * 0.5));
       if (G.ngPlus) { def.hp = Math.round(def.hp * 1.4); def.speed = Math.round(def.speed * 1.1); }
+      /* global challenge: the whole realm hits harder, moves quicker, lasts longer */
+      def.hp = Math.max(1, Math.round(def.hp * CHALLENGE.hp));
+      def.speed = Math.round(def.speed * CHALLENGE.speed);
       /* run modifiers: SWARM thins their ranks, PARADOX IDOL quickens their feet */
       if (G.mod && G.mod.foeHpMult) def.hp = Math.max(1, Math.round(def.hp * G.mod.foeHpMult));
       if (G.foeSpeedMult) def.speed = Math.round(def.speed * G.foeSpeedMult);
@@ -196,7 +199,10 @@ function squadEntry(rng, level, role) {
   if (!pool.length) return null;
   const kind = rngPick(rng, pool);
   const t = ENEMY_TYPES[kind];
-  const count = kind === "swarm" || kind === "imp" ? rngInt(rng, 2, 3) : rngInt(rng, 1, 2);
+  /* dynamic squads run deeper than the authored spine (challenge dial) */
+  const count = kind === "swarm" || kind === "imp"
+    ? rngInt(rng, 2, Math.max(3, Math.round(3 * CHALLENGE.count)))
+    : rngInt(rng, 1, Math.max(2, Math.round(2 * CHALLENGE.count)));
   return { name: t.name, type: kind, count };
 }
 function buildEncounter(n) {
@@ -251,7 +257,7 @@ function buildEncounter(n) {
 function spawnMiniboss(mb) {
   const def = Object.assign({}, mb.def, {
     name: mb.name,
-    hp: Math.round(mb.def.hp * (1 + Math.max(0, G.level - mb.minLv) * 0.08)),
+    hp: Math.round(mb.def.hp * (1 + Math.max(0, G.level - mb.minLv) * 0.08) * CHALLENGE.hp),
     isBoss: false,   // a mid-level threat, not a throne-holder — the level keeps flowing
   });
   const e = new Enemy(def, rand(CFG.MARGIN + 60, CFG.W - CFG.MARGIN - 60), rand(CFG.MARGIN + 60, CFG.H - CFG.MARGIN - 60));
@@ -312,7 +318,7 @@ function openSecret(s) {
     const kinds = availKinds(G.level, "brawler");
     for (let i = 0; i < 3; i++) {
       const t = ENEMY_TYPES[rngPick(rng, kinds)];
-      const e = new Enemy(Object.assign({}, t, { name: "AMBUSHER " + t.name, hp: Math.round(t.hp * 1.2) }), gx + rand(-40, 40), gy + rand(-40, 40));
+      const e = new Enemy(Object.assign({}, t, { name: "AMBUSHER " + t.name, hp: Math.round(t.hp * 1.2 * CHALLENGE.hp) }), gx + rand(-40, 40), gy + rand(-40, 40));
       if (i === 0) { e.eliteMod = "AUREATE"; e.hp = Math.round(e.hp * 1.5); e.r += 3; }
       game.enemies.push(e);
       game.G.minionsLeft++;
@@ -376,7 +382,7 @@ function trialFoe(def, near) {
   const p = game.player;
   let x, y;
   do { x = rand(80, CFG.W - 80); y = rand(80, CFG.H - 80); } while (dist({ x, y }, p) < 140);
-  const e = new Enemy(def, x, y);
+  const e = new Enemy(Object.assign({}, def, { hp: Math.max(1, Math.round(def.hp * CHALLENGE.hp)) }), x, y);
   e.summoned = true;      // trial foes never count toward the level's door
   e.trialFoe = true;
   game.enemies.push(e);
@@ -482,9 +488,10 @@ game.G.bossSpawned = false;
   Object.assign(game, {
     obstacles: world.obstacles, hazards: world.hazards, traps: world.traps, crates: world.crates, shrine: world.shrine,
   });
-  // Previous bosses as NPCs in later stages — only after defeating
+  // Previous bosses as NPCs in later stages — only after defeating.
+  // Always re-read: kills write through to storage, so this stays fresh.
   try{
-    G.defeatedBosses = G.defeatedBosses || JSON.parse(localStorage.getItem("blobknight.defeated") || "[]");
+    G.defeatedBosses = JSON.parse(localStorage.getItem("blobknight.defeated") || "[]");
     if (G.level > 1 && G.defeatedBosses.length > 0) {
       const candidates = G.defeatedBosses.filter(k => !k.startsWith(`${n}:`)).slice(-2);
       for (const key of candidates) {
@@ -587,6 +594,9 @@ function enrichBossNG(b) {
 function spawnBoss() {
   const b = enrichBossNG(LEVELS[G.level].boss);
   const boss = new Enemy(b, CFG.W - 120, CFG.H / 2);
+  boss.maxHp = Math.max(1, Math.round(boss.maxHp * CHALLENGE.bossHp));   // the challenge dial
+  boss.hp = boss.maxHp;
+  boss.setBossState("intro", 1.2);   // the arrival beat: banner time, no offense yet
   game.enemies.push(boss);
   game.G.bossSpawned = true;
   game.shake = Math.max(game.shake, 0.25);
@@ -605,6 +615,9 @@ function spawnBoss() {
   if (G.doubleBoss) {
     const second = new Enemy(b, CFG.MARGIN + 90, CFG.H / 2);
     second.x = CFG.W - 220; second.y = CFG.H - 90;
+    second.maxHp = boss.maxHp;   // same challenge-scaled pool
+    second.hp = second.maxHp;
+    second.setBossState("intro", 1.6);   // the twin commits a beat later
     game.enemies.push(second);
     flash("THE TWINS DESCEND!", "#ff2a6a");
   }
@@ -683,6 +696,8 @@ function checkLevelUp() {
 /* single place where enemies take damage: flash, knockback, kill */
 function hurtEnemy(e, dmg, kx, ky, opts = {}) {
   if (e.dead) return;
+  /* a former lord stung awake — the first blow restores the real fight */
+  if (e.isNPC) { e.wakeFromNpc(game); return; }
   /* idea 18: boss shield windows block all frontal damage */
   if (e.shieldT > 0 && !opts.ignoreShield) {
     e.hurtT = 0.08;
@@ -1612,8 +1627,8 @@ function die() {
   G.meta.essence += Math.max(1, Math.floor(G.kills / 3));
   saveGame();
   showOverlay("☠️ YOU FELL", `You felled <b>${G.kills}</b> foes. The embers fade... but the story can be relived.<br>Earned <b style="color:#c084fc">${G.meta.essence} ember essence</b>.`, null, null, [
+    { label: "🔄 TRY AGAIN", fn: restartRun, primary: true },   // continuing the run comes FIRST — never below a meta menu
     { label: "🕯️ VISIT THE EMBER SHRINE", fn: openShrine },
-    { label: "🔄 TRY AGAIN", fn: restartRun, primary: true },
     { label: "🏠 MAIN MENU", fn: resetGame },
   ]);
 }
@@ -2352,6 +2367,24 @@ function toggleMute() {
   flash(G.mute ? "🔇 SOUND OFF" : "🔊 SOUND ON", "#9a90b8");
 }
 
+/* menu panels: opening one folds the other — the menu never crowds itself */
+function toggleMenuPanel(id, siblingId) {
+  const p = document.getElementById(id);
+  if (!p) return;
+  const opening = p.style.display === "none";
+  p.style.display = opening ? "flex" : "none";
+  const sib = document.getElementById(siblingId);
+  if (sib && opening) sib.style.display = "none";
+}
+
+/* browsers block window.close() for tabs they opened — leave on a farewell, not a dead flash */
+function showFarewell() {
+  showOverlay("🕯️ FAREWELL, KNIGHT", "The depths will wait.<br>Come back when the blade calls.", null, null, [
+    { label: "🚪 CLOSE THE TAB", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(() => { try { window.close(); } catch (e) { /* tab stays — that's the browser's call */ } }, 300); } },
+    { label: "⬅️ STAY", fn: resetGame, primary: true },
+  ]);
+}
+
 function resetGame() {
   const meta = G.meta;
   const cls = G.className;
@@ -2383,13 +2416,13 @@ function resetGame() {
   const firstRun = statsRuns() === 0;
   const buttons = [
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
-    { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
-    { label: "✦ MODIFIERS", fn: () => { const p=document.getElementById("modPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: `${(G.modifiers || []).length}/2 active` },
+    { label: "⚔️ DIFFICULTY", fn: () => { toggleMenuPanel("diffPanel", "modPanel"); }, note: DIFFICULTIES[G.difficulty].name },
+    { label: "✦ MODIFIERS", fn: () => { toggleMenuPanel("modPanel", "diffPanel"); }, note: `${(G.modifiers || []).length}/2 active` },
     { label: "🌀 GOD RUN PERKS", fn: showGodPerks, note: `${GOD_PERKS.unlocked.length}/4 unlocked` },
     { label: "⚙️ SETTINGS", fn: openOptions },
-    { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(()=> { try{ window.close(); }catch(e){} }, 400); } },
+    { label: "🚪 EXIT", fn: showFarewell },
   ];
-  showOverlay("BLOB<span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
+  showOverlay("BLOB <span>KNIGHT</span>", `Clear ${MAX_LEVEL} depths. Claim the throne.`, null, null, buttons, true);
   // Wrap main menu buttons in centered container for proper vertical centering
   const overlayEl = $("overlay");
   const menuCenter = document.createElement("div");
@@ -2422,6 +2455,7 @@ function resetGame() {
       [...dh.querySelectorAll("button")].forEach(btn => btn.classList.toggle("on", btn.textContent.startsWith(d.name)));
       const diffBtn = [...menuCenter.querySelectorAll("button.btn")].find(btn => btn.textContent.includes("DIFFICULTY"));
       if (diffBtn) diffBtn.textContent = `⚔️ DIFFICULTY — ${d.name}`;
+      dh.style.display = "none";   // a choice made — the panel folds itself
     };
     dh.appendChild(b);
   }
@@ -2464,6 +2498,7 @@ function resetGame() {
       else cur.push(mod.id);
       b.classList.toggle("on", cur.includes(mod.id));
       syncModButton();
+      mh.style.display = "none";   // a choice made — the panel folds itself
     };
     mh.appendChild(b);
   }

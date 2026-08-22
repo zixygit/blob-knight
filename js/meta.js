@@ -105,6 +105,7 @@ const BESTIARY_LORE = {
   commander: "The banner does not fight. The banner makes everything around it braver and faster. Silence the horn first, or face the whole warren at a run.",
   tentacle: "Something vast beneath the rift flexes, and the ground swells in warning. Nine-tenths of the beast is elsewhere; you fight the tenth you can reach.",
   trapper: "Its silk does not bite — it merely holds you, politely, for everyone else. The pale patches on the floor are not decorations.",
+  bolt_eater: "It has no eyes, no ears — only a mouth for other people's arrows. Feed it five and it burps them back. Draw steel.",
 };
 function seeEnemy(kind) {
   if (!kind || STATS.seenEnemies[kind]) return;
@@ -122,8 +123,8 @@ const DIFFICULTIES = {
   godrun: { name: "GOD RUN", mult: 2.8, desc: "180% more damage — 2 HP forever, potions only" },
 };
 function applyDifficultyMult(dmg) {
-  /* cursed VOID COIN makes every foe hit a little harder */
-  return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult * (G.enemyDmgMult || 1));
+  /* difficulty × cursed VOID COIN × the global challenge dial */
+  return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult * (G.enemyDmgMult || 1) * CHALLENGE.dmg);
 }
 
 /* ---------- daily challenge (idea 61) ---------- */

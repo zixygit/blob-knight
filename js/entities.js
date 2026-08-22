@@ -54,6 +54,9 @@ class Enemy {
     this.spiralAng = Math.random() * Math.PI * 2;
     this.enraged = false;
     this.enraged2 = false;
+    // boss AI state machine: intro → chase → attack → recovery → phase
+    this.bossState = "intro";
+    this.bossStateT = 1.1;
 
     // idea 21: standardized telegraph — flash + marker before an attack
     this.telegraph = 0;
@@ -138,23 +141,6 @@ class Enemy {
     }
 
     if (this.isNPC) {
-      // NPC ↔ Combat transitions: if hostile, restore boss AI
-      if (this.npcHostile) {
-        this.isNPC = false;
-        this.isBoss = true;
-        this.boss = this.originalBoss;
-        this.r = this.originalR;
-        this.maxHp = this.originalBoss.hp;
-        this.hp = this.maxHp;
-        this.speed = this.originalBoss.speed;
-        this.color = this.originalBoss.color;
-        this.name = this.originalBoss.name;
-        // reset boss timers
-        this.volleyT = this.originalBoss.volleyCd || 3;
-        this.radialT = this.originalBoss.radialCd || 0;
-        this.updateBoss(dt, game);
-        return;
-      }
       this.updateNPC(dt, game);
       return;
     }
@@ -208,6 +194,7 @@ class Enemy {
       case "rift_mage": this.behaveRiftMage(dt, game, p); break;
       case "executioner": this.behaveExecutioner(dt, game, p); break;
       case "chain_beast": this.behaveChainBeast(dt, game, p); break;
+      case "bolt_eater":  this.behaveBoltEater(dt, game, p); break;
       /* replayability: mini-bosses + the gilded mimic */
       case "mb_warden":     this.behaveMBWarden(dt, game, p); break;
       case "mb_paragon":    this.behaveMBParagon(dt, game, p); break;
@@ -313,11 +300,11 @@ class Enemy {
       }
       return;
     }
-    // approach slowly while waiting to charge
+    // approach slowly while waiting to charge; a webbed or chilled target draws the charge faster
     const ang = Math.atan2(p.y - this.y, p.x - this.x);
     this.x += Math.cos(ang) * this.speed * 0.5 * dt;
     this.y += Math.sin(ang) * this.speed * 0.5 * dt;
-    this.chargeT -= dt;
+    this.chargeT -= dt * (G.slowT > 0.5 ? 1.6 : 1);   // PACK TACTIC: trappers and freezers feed the charger
     if (this.chargeT <= 0 && dist(this, p) < 320) {
       this.chargeT = this.chargeCd;
       this.windup = this.windupT;
@@ -599,6 +586,26 @@ class Enemy {
         game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
         game.effects.push({ type: "ring", x: this.x, y: this.y, r: 26, t: 0.55, color: "#ff2a6a" });
         game.SFX && game.SFX.teleport();
+        /* PACK TACTIC: the red ring is the signal — nearby gunners bracket the
+           player's likely dodge so the escape route is covered too */
+        let synced = false;
+        for (const o of game.enemies) {
+          if (o === this || o.dead || o.isNPC || o.isBoss) continue;
+          if ((o.kind === "shooter" || o.kind === "drone" || o.kind === "sniper" || o.kind === "siege_drone") && dist(o, this) < 320) {
+            const lead = 0.35;   // fire where the dodge is going, not where it started
+            const tx = clamp(p.x + (p.vx || 0) * lead, CFG.MARGIN, CFG.W - CFG.MARGIN);
+            const ty = clamp(p.y + (p.vy || 0) * lead, CFG.MARGIN, CFG.H - CFG.MARGIN);
+            const base = Math.atan2(ty - o.y, tx - o.x);
+            for (let i = -1; i <= 1; i++) {
+              game.projectiles.push(new Projectile("enemy", o.x, o.y,
+                Math.cos(base + i * 0.16) * 300, Math.sin(base + i * 0.16) * 300, 5, rand(4, 7), "#e8a83d"));
+            }
+            o.cooldown = Math.max(o.cooldown, (o.fireCd || 2.2) * 0.8);
+            game.effects.push({ type: "ring", x: o.x, y: o.y, r: 12, t: 0.3, color: "#e8a83d" });
+            synced = true;
+          }
+        }
+        if (synced) game.flash("ESCAPE DENIED — they hunt in concert!", "#e8a83d");
       }
       return;
     }
@@ -1073,8 +1080,44 @@ class Enemy {
     }
   }
 
-  /* ---------- replayability: mini-bosses — each punishes a strategy ---------- */
+  /* BOLT MAW: devours player projectiles in its maw-field; five stolen shots
+     come spitting back out. The answer is a blade, not more bolts. */
+  behaveBoltEater(dt, game, p) {
+    this.eatPulse = (this.eatPulse || 0) - dt;
+    if (this.eatPulse <= 0) {
+      this.eatPulse = 0.12;
+      for (let i = game.projectiles.length - 1; i >= 0; i--) {
+        const pr = game.projectiles[i];
+        if (pr.team !== "player" || pr.bomb || dist(pr, this) > (this.eatR || 74)) continue;
+        game.projectiles.splice(i, 1);
+        this.fed = (this.fed || 0) + 1;
+        game.effects.push({ type: "spark", x: pr.x, y: pr.y, vx: 0, vy: 0, t: 0.2, color: this.color });
+        game.effects.push({ type: "trail", x: pr.x, y: pr.y, t: 0.12, color: this.color, r: 3 });
+      }
+    }
+    if ((this.fed || 0) >= 5) {
+      this.fed = 0;
+      game.flash(`${this.name} spits your shots back!`, "#a88cff");
+      game.SFX && game.SFX.teleport();
+      const base = Math.atan2(p.y - this.y, p.x - this.x);
+      for (let i = 0; i < 6; i++) {
+        const ang = base + (i - 2.5) * 0.17;
+        game.projectiles.push(new Projectile("enemy", this.x, this.y,
+          Math.cos(ang) * 300, Math.sin(ang) * 300, 5, rand(4, 7), "#a88cff"));
+      }
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: 26, t: 0.4, color: "#a88cff" });
+    }
+    /* it advances the whole time — standing still just feeds it */
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    this.x += Math.cos(ang) * this.speed * dt;
+    this.y += Math.sin(ang) * this.speed * dt;
+    if (dist(this, p) < this.r + p.r && this.cooldown <= 0) {
+      this.cooldown = 1.0;
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+    }
+  }
 
+  /* ---------- replayability: mini-bosses — each punishes a strategy ---------- */
   /* WARDEN OF BOLTS: anti-ranged — point defense erases projectiles, melee is the answer */
   behaveMBWarden(dt, game, p) {
     this.dodgeIncoming(dt, game);
@@ -1221,20 +1264,49 @@ class Enemy {
   }
 
   /* ---------- boss AI: chase + volley + radial + spiral + summon + enrages ---------- */
+  /* boss AI states: intro (arrival) → chase → attack (committed pattern)
+     → recovery (punishable beat) → chase; enrage thresholds cut to a brief
+     invulnerable PHASE shift. Movement and pattern initiation follow state. */
+  setBossState(s, t) {
+    this.bossState = s;
+    this.bossStateT = t !== undefined ? t : 0;
+    if (s === "phase") this.shieldT = Math.max(this.shieldT || 0, 0.9);   // the shift is invulnerable
+  }
+
   updateBoss(dt, game) {
     const p = game.player;
     const b = this.boss;
     const d = dist(this, p);
-    if (d > 160) {
-      const ang = Math.atan2(p.y - this.y, p.x - this.x);
-      const sp = this.speed * (this.enraged2 ? 1.45 : this.enraged ? 1.25 : 1);
-      this.x += Math.cos(ang) * sp * dt;
-      this.y += Math.sin(ang) * sp * dt;
-    } else if (d < 90) {
-      const ang = Math.atan2(p.y - this.y, p.x - this.x);
-      this.x -= Math.cos(ang) * this.speed * 0.5 * dt;
-      this.y -= Math.sin(ang) * this.speed * 0.5 * dt;
+    this.bossStateT -= dt;
+
+    if (this.bossState === "intro" || this.bossState === "phase") {
+      /* arrival / phase-shift beat: standing, invulnerable, committed to nothing */
+      if (this.bossState === "phase") this.shieldT = Math.max(this.shieldT, 0.1);
+      if (this.bossStateT <= 0) this.setBossState("chase");
+      return;
     }
+    if (this.bossState === "attack" && this.bossStateT <= 0)
+      this.setBossState("recovery", 0.3 + Math.random() * 0.25);
+    if (this.bossState === "recovery" && this.bossStateT <= 0)
+      this.setBossState("chase");
+
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    if (this.bossState === "chase") {
+      if (d > 160) {
+        const sp = this.speed * (this.enraged2 ? 1.45 : this.enraged ? 1.25 : 1);
+        this.x += Math.cos(ang) * sp * dt;
+        this.y += Math.sin(ang) * sp * dt;
+      } else if (d < 90) {
+        this.x -= Math.cos(ang) * this.speed * 0.5 * dt;
+        this.y -= Math.sin(ang) * this.speed * 0.5 * dt;
+      }
+    } else if (this.bossState === "attack" && d > 130) {
+      /* committed patterns allow a heavy drift, not a chase */
+      this.x += Math.cos(ang) * this.speed * 0.35 * dt;
+      this.y += Math.sin(ang) * this.speed * 0.35 * dt;
+    }
+    /* recovery: stands its ground — that's the punish window */
+
     if (d < this.r + p.r && this.cooldown <= 0) {
       this.cooldown = 1.0;
       game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
@@ -1245,6 +1317,7 @@ class Enemy {
       game.flash(`${this.name} is ENRAGED!`, "#ff5a2a");
       game.slowmoT = 0.9;                    // idea 31: slow-mo cinematic
       game.shake = Math.max(game.shake, 0.3);
+      this.setBossState("phase", 0.9);
       game.SFX && game.SFX.boss();
     }
     /* New Game+ secret — the SECOND CROWN: once, at the brink, the lord mends */
@@ -1256,6 +1329,7 @@ class Enemy {
       game.slowmoT = 0.8;
       game.shake = Math.max(game.shake, 0.35);
       game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 44, t: 0.7, color: "#ff2a6a" });
+      this.setBossState("phase", 1.0);
       game.SFX && game.SFX.boss();
     }
     if (!this.enraged2 && b.enrage2At && this.hp < this.maxHp * b.enrage2At) {
@@ -1263,6 +1337,7 @@ class Enemy {
       game.flash(`${this.name} goes BERSERK!`, "#ff2a6a");
       game.slowmoT = 0.9;                    // idea 31
       game.shake = Math.max(game.shake, 0.35);
+      this.setBossState("phase", 0.9);
       game.SFX && game.SFX.boss();
     }
     /* idea 35: desperation attack at ~5% HP — one massive burst */
@@ -1289,14 +1364,16 @@ class Enemy {
     const ready = c => !c.from || phase >= c.from;
 
     this.volleyT -= dt;
-    if (b.volley && ready(b.volley) && this.volleyT <= 0) {
+    if (b.volley && ready(b.volley) && this.volleyT <= 0 && this.bossState === "chase") {
       this.volleyT = (b.volleyCd || 2.4) * mult;
+      this.setBossState("attack", 0.4);   // committed to the volley
       game.bossVolley(this, b.volley);
     }
     if (b.radial && ready(b.radial)) {
       this.radialT -= dt;
-      if (this.radialT <= 0) {
+      if (this.radialT <= 0 && this.bossState === "chase") {
         this.radialT = (b.radialCd || 3.5) * mult;
+        this.setBossState("attack", 0.5);   // the eruption plants it
         game.bossRadial(this, b.radial);
       }
     }
@@ -1318,10 +1395,11 @@ class Enemy {
     /* idea 34: laser sweep */
     if (b.laser && ready(b.laser)) {
       this.laserT = (this.laserT || 0) - dt;
-      if (this.laserT <= 0) {
+      if (this.laserT <= 0 && this.bossState === "chase") {
         this.laserT = b.laser.cd * mult;
         this.laserAng = Math.atan2(p.y - this.y, p.x - this.x) - b.laser.sweep / 2;
         this.laserSpin = b.laser.sweep / 1.2;
+        this.setBossState("attack", 1.2);   // the sweep is a committed stance
         game.flash(`${this.name} sweeps its gaze!`, "#c0a8f0");
       }
       if (this.laserSpin > 0) {
@@ -1339,8 +1417,9 @@ class Enemy {
     /* idea 34: ground AOE zones */
     if (b.aoe && ready(b.aoe)) {
       this.aoeT = (this.aoeT || 0) - dt;
-      if (this.aoeT <= 0) {
+      if (this.aoeT <= 0 && this.bossState === "chase") {
         this.aoeT = b.aoe.cd * mult;
+        this.setBossState("attack", 0.4);
         game.flash(`${this.name} tears the ground!`, "#c0a8f0");
         for (let i = 0; i < b.aoe.count; i++) {
           const zx = clamp(p.x + rand(-220, 220), CFG.MARGIN, CFG.W - CFG.MARGIN);
@@ -1491,9 +1570,10 @@ class Enemy {
           break;
         }
         this.chargeT -= dt;
-        if (this.chargeT <= 0 && dist(this, p) < 340) {
+        if (this.chargeT <= 0 && dist(this, p) < 340 && this.bossState === "chase") {
           this.chargeT = b.mechCd || 5;
           this.windup = 0.7;
+          this.setBossState("attack", 0.7);
           game.flash(`${this.name} braces to charge!`, "#ff5a2a");
           game.SFX && game.SFX.boss();
         }
@@ -1634,8 +1714,46 @@ class Enemy {
         this.npcTimer = rand(1.5, 2.5);
       }
     }
-    // Become hostile if damaged
-    if (this.hp < this.maxHp) this.npcHostile = true;
+  }
+
+  /* A former lord stung awake: restore its ORIGINAL kit with fresh combat
+     state. Called from hurtEnemy on the first blow — the wake beat is a
+     telegraphed, invulnerable intro, never a free kill. */
+  wakeFromNpc(game) {
+    const def = (typeof enrichBossNG === "function" && G.ngPlus) ? enrichBossNG(this.originalBoss) : this.originalBoss;
+    this.isNPC = false;
+    this.npcHostile = false;
+    this.isBoss = true;
+    this.boss = def;
+    this.r = this.originalR;
+    this.color = this.originalColor;
+    this.maxHp = Math.max(1, Math.round(def.hp * (typeof CHALLENGE !== "undefined" ? CHALLENGE.bossHp : 1)));
+    this.hp = this.maxHp;
+    this.speed = def.speed;
+    this.name = def.name;
+    /* fresh timers — the lord remembers nothing of its stroll */
+    this.enraged = false; this.enraged2 = false;
+    this.crownUsed = false; this.despairDone = false;
+    this.volleyT = def.volleyCd || 3;
+    this.radialT = def.radialCd || 0;
+    this.bossSumT = 4; this.spiralT = 0; this.spiralAng = Math.random() * Math.PI * 2;
+    this.laserT = 0; this.laserSpin = 0; this.aoeT = 0;
+    this.mechShieldT = 0; this.shieldT = 0;
+    this.cooldown = 0; this.knock = 0; this.hurtT = 0.15;
+    this.bossState = "intro";
+    this.bossStateT = 1.0;
+    this.shieldT = 1.0;   // the windup is your warning
+    game.shake = Math.max(game.shake, 0.35);
+    game.slowmoT = 0.7;
+    game.flash(`⚠ ${def.name} AWAKENS!`, "#ff7847");
+    game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 46, t: 0.8, color: "#ff7847" });
+    game.SFX && game.SFX.boss();
+    const banner = document.getElementById("bossBanner");
+    if (banner) {
+      banner.textContent = `⚔️ ${def.name} ⚔️`;
+      banner.classList.add("show");
+      setTimeout(() => banner.classList.remove("show"), 2000);
+    }
   }
 }
 
