@@ -41,6 +41,7 @@ const G = {
   modifiers: [], mod: {},                     // replayability: optional run modifiers
   syn: [], weaponVoucher: 0,                  // replayability: discovered synergies / trial rewards
   playtime: 0,                                // idea 62
+  chainCd: 0, chainPull: null,                 // base chain ability — R: hook + pull + exile AOE
   level: 1, door: null, loot: [], bossSpawned: false, minionsLeft: 0, loreNotes: [],
 };
 
@@ -81,6 +82,8 @@ const game = {
   secondary: null,        // secondary hand — ranged weapons (crossbow/staff/...)
   weapons: ["sword"],     // owned weapons
   gravityWells: [],       // gravity orb: brief pull zones
+  chain: null,            // active chain pull state {target, t, total, start}
+  chainFx: null,          // chain beam fx {x0,y0,x1,y1,t}
 };
 
 /* ---------- input ---------- */
@@ -97,6 +100,7 @@ addEventListener("keydown", e => {
   const isAction = Object.values(km).includes(k);
   if (isAction) e.preventDefault();
   if (k === km.attack && !e.repeat) { G.charging = true; G.chargeT = 0; }   // charge starts on press; attack fires on release
+  if ((km.chain && k === km.chain || (!km.chain && k === "r")) && !e.repeat) tryChainAbility();
   if (k === km.secondary && !e.repeat) secondaryAttack(game);
   if (k === km.potion && !e.repeat) drinkPotion();
   if (k === km.weapon && !e.repeat) cycleWeapon();
@@ -1065,6 +1069,108 @@ function tryDash() {
   SFX.dash();
 }
 
+/* ---------- base chain ability — R: hook the farthest foe, drag him in, then exile everything with a great blade ---------- */
+let chainHudCache = "";
+function syncChainHud() {
+  const el = $("hChain");
+  if (!el) return;
+  const cd = G.chainCd || 0;
+  const txt = cd > 0 ? `⛓️ ${cd.toFixed(1)}s` : "⛓️ READY";
+  if (txt !== chainHudCache) {
+    chainHudCache = txt;
+    el.textContent = txt;
+    el.classList.toggle("ready", cd <= 0);
+  }
+}
+function chainSlam(cx, cy) {
+  const p = game.player;
+  if (!p) return;
+  const R = CHAIN_ABILITY.aoeR;
+  const baseDmg = rand(CHAIN_ABILITY.aoeDmg[0], CHAIN_ABILITY.aoeDmg[1]) + Math.round(G.atk * 0.7);
+  game.effects.push({ type: "ring", x: cx, y: cy, r: R, t: 0.35, color: "#c8c8e8" });
+  game.effects.push({ type: "ring", x: cx, y: cy, r: R * 0.65, t: 0.22, color: "#ffd166" });
+  game.arcs.push({ ang: p.dir, t: 0.45, arc: Math.PI * 2, r: R - 12, color: "#c8c8e8" });
+  if (game.arcs.length > 5) game.arcs.shift();
+  game.shake = Math.max(game.shake, 0.28);
+  SFX.boom();
+  let hit = 0;
+  for (const e of [...game.enemies]) {
+    if (e.isNPC || e.dead) continue;
+    const d = dist({ x: cx, y: cy }, e);
+    if (d < R + e.r) {
+      const ang = Math.atan2(e.y - cy, e.x - cx);
+      const dmg = Math.round(baseDmg * (e === game._chainPulled ? 1.25 : 1));
+      hurtEnemy(e, dmg, Math.cos(ang) * 16, Math.sin(ang) * 16, { knock: CHAIN_ABILITY.pushKnock, color: "#c8c8e8", hitStop: 0.06 });
+      const push = 42;
+      e.x = clamp(e.x + Math.cos(ang) * push, CFG.MARGIN, CFG.W - CFG.MARGIN);
+      e.y = clamp(e.y + Math.sin(ang) * push, CFG.MARGIN, CFG.H - CFG.MARGIN);
+      hit++;
+    }
+  }
+  if (hit) flash(`⛓️ EXILE! ${hit} foe${hit > 1 ? "s" : ""} scattered`, "#c8c8e8");
+  else flash("⛓️ SLAM!", "#c8c8e8");
+  game.effects.push({ type: "boom", x: cx, y: cy, t: 0.4 });
+  game.chain = null;
+  game._chainPulled = null;
+  if (game.chainFx) game.chainFx.t = 0;
+  renderHUD();
+}
+function updateChainPull(dt) {
+  if (!game.chain || !game.chain.target) return;
+  const p = game.player;
+  if (!p) { game.chain = null; return; }
+  const tgt = game.chain.target;
+  if (tgt.dead || tgt.isNPC) {
+    const cx = tgt.x, cy = tgt.y;
+    game.chain = null;
+    chainSlam(cx, cy);
+    return;
+  }
+  tgt.knock = Math.max(tgt.knock || 0, 0.12);
+  tgt.hurtT = Math.max(tgt.hurtT || 0, 0.08);
+  const d = dist(tgt, p);
+  if (d < CHAIN_ABILITY.pullGap) {
+    tgt.x = clamp(p.x + Math.cos(p.dir) * 22, CFG.MARGIN, CFG.W - CFG.MARGIN);
+    tgt.y = clamp(p.y + Math.sin(p.dir) * 22, CFG.MARGIN, CFG.H - CFG.MARGIN);
+    game._chainPulled = tgt;
+    chainSlam(p.x, p.y);
+    return;
+  }
+  const ang = Math.atan2(p.y - tgt.y, p.x - tgt.x);
+  const need = d - CHAIN_ABILITY.pullGap;
+  const total = game.chain.total || CHAIN_ABILITY.pullTime;
+  const remain = Math.max(0.05, game.chain.t);
+  const pullSpeed = Math.max(CHAIN_ABILITY.speed * 0.85, (need / remain) * 1.05);
+  tgt.x = clamp(tgt.x + Math.cos(ang) * pullSpeed * dt, CFG.MARGIN, CFG.W - CFG.MARGIN);
+  tgt.y = clamp(tgt.y + Math.sin(ang) * pullSpeed * dt, CFG.MARGIN, CFG.H - CFG.MARGIN);
+  game.chain.t -= dt;
+  game.chainFx = { x0: p.x, y0: p.y, x1: tgt.x, y1: tgt.y, t: 0.12, color: "#c8c8e8" };
+  game.effects.push({ type: "spark", x: tgt.x, y: tgt.y, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, t: 0.2, color: "#c8c8e8" });
+  if (game.chain.t <= 0) {
+    game._chainPulled = tgt;
+    chainSlam(tgt.x, tgt.y);
+  }
+}
+function tryChainAbility() {
+  if (G.phase !== "play" || !game.player) return;
+  if ((G.chainCd || 0) > 0) { flash(`⛓️ CHAIN ⏳ ${G.chainCd.toFixed(1)}s`, "#9a90b8"); SFX.hit(); return; }
+  if (game.chain) return;
+  const p = game.player;
+  G.chainCd = CHAIN_ABILITY.cd;
+  chainHudCache = "";
+  const ang = p.dir;
+  const proj = new Projectile("player", p.x + Math.cos(ang) * 16, p.y + Math.sin(ang) * 16,
+    Math.cos(ang) * CHAIN_ABILITY.speed, Math.sin(ang) * CHAIN_ABILITY.speed, 7, 0, "#c8c8e8", { chain: true });
+  proj.ttl = CHAIN_ABILITY.range / CHAIN_ABILITY.speed;
+  proj.chain = true;
+  game.projectiles.push(proj);
+  game.effects.push({ type: "muzzle", x: p.x + Math.cos(ang) * 18, y: p.y + Math.sin(ang) * 18, dir: ang, t: 0.08, color: "#c8c8e8" });
+  game.effects.push({ type: "beam", x1: p.x, y1: p.y, x2: p.x + Math.cos(ang) * 22, y2: p.y + Math.sin(ang) * 22, t: 0.14, color: "#c8c8e8" });
+  SFX.hit();
+  flash("⛓️ CHAIN LAUNCHED!", "#c8c8e8");
+  renderHUD();
+}
+
 /* ---------- boss attacks ---------- */
 function bossVolley(boss, cfg) {
   const p = game.player;
@@ -1209,6 +1315,8 @@ function update(dt) {
     game.player.lavaT = Math.max(0, (game.player.lavaT || 0) - dt);
   }
   G.slowT = Math.max(0, G.slowT - dt);
+  G.chainCd = Math.max(0, (G.chainCd || 0) - dt);
+  if (game.chainFx) { game.chainFx.t -= dt; if (game.chainFx.t <= 0) game.chainFx = null; }
   /* shop consumables + cursed drawbacks tick in real time */
   G.tempAtkT = Math.max(0, (G.tempAtkT || 0) - dt);
   G.tempSpdT = Math.max(0, (G.tempSpdT || 0) - dt);
@@ -1239,6 +1347,9 @@ function update(dt) {
   let slowFactor = 1;
   if (G.slowmoT > 0) { G.slowmoT -= dt; slowFactor = 0.3; }
   const combatDt = (G.hitStop > 0 ? 0 : dt) * slowFactor;
+
+  /* base chain — hook, pull, exile */
+  updateChainPull(combatDt);
 
   /* idea 34: ground AOE zones tick down then explode */
   for (const z of [...G.aoeZones]) {
@@ -1308,7 +1419,7 @@ function update(dt) {
       }
       game.shake = Math.max(game.shake, 0.08);
     }
-    syncDashHud();
+    syncDashHud(); syncChainHud();
     return;
   }
   if (p.dashT > 0) {
@@ -1571,7 +1682,7 @@ function update(dt) {
     renderHUD();
   }
 
-  syncDashHud();
+  syncDashHud(); syncChainHud();
   updateBossBar();
   updateObjHint();
 }
@@ -2422,13 +2533,15 @@ function resetGame() {
     syn: [], weaponVoucher: 0, mod: {}, trial: null,
     perks: [], artifact: null, wLevels: { sword: 1, wave: 1, crossbow: 1, staff: 1 },
     chargeT: 0, charging: false,
+    chainCd: 0,
   });
   G.meta = meta || { essence: 0, lvls: { hp: 0, atk: 0, gold: 0, potion: 0, crit: 0 } };
   G.className = cls || "KNIGHT";
   Object.assign(game, { player: null, enemies: [], projectiles: [], waves: [], effects: [], arcs: [], time: 0, shake: 0, weapon: "sword", secondary: null, weapons: ["sword"],
     obstacles: [], hazards: [], traps: [], crates: [], shrine: null,
     orbits: [], deployables: [], burnZones: [], hazardZones: [], gravityWells: [],
-    secrets: [], trialStone: null, gildedMimicSpawned: false });
+    secrets: [], trialStone: null, gildedMimicSpawned: false,
+    chain: null, chainFx: null, _chainPulled: null });
   rerolled = false;
   shopStock = null; stockSalt = 0;
   G.aoeZones = []; G.dmgTaken = 0; G.slowmoT = 0; G.branchChosen = false;
@@ -2865,6 +2978,7 @@ function initTouch() {
   hold($("tSecondary"), () => secondaryAttack(game));
   hold($("tBomb"), () => throwBomb(game));
   hold($("tDash"), () => tryDash());
+  hold($("tChain"), () => tryChainAbility());
   hold($("tPotion"), () => drinkPotion());
   hold($("tCycle"), () => cycleWeapon());
   hold($("tPause"), () => togglePause());
@@ -2879,8 +2993,9 @@ function updateHintKeys() {
   const hasMelee = game.weapons.filter(w => WEAPONS[w] && WEAPONS[w].type === "melee").length > 1;
   const parts = ["SPACE ⚔️"];
   if (hasMelee) parts.push("C ⚔️");
-  parts.push("R 🏹", "SHIFT 💨", "E 🧪", "F 💣", "G 🤖", "T 🪤");
-  const base = hasSec ? parts : parts.filter(p => !p.startsWith("R "));
+  parts.push("R ⛓️", "X 🏹", "SHIFT 💨", "E 🧪", "F 💣", "G 🤖", "T 🪤");
+  // chain is always available (base kit); ranged hint only when you own one
+  const base = hasSec ? parts : parts.filter(p => !p.endsWith("🏹"));
   el.textContent = base.join("  ") + "   P ⏸   M 🔇";
 }
 updateHintKeys();

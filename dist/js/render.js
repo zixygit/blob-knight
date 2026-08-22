@@ -180,6 +180,7 @@ function draw(game) {
   drawProjectiles(game);
   drawPlayer(game);
   drawEffects(game);
+  drawChain(game);
 
   /* DARK RUN modifier: the arena narrows to a lantern's reach */
   if (G.mod && G.mod.dark && game.G.phase === "play") {
@@ -818,4 +819,39 @@ function drawEffects(game) {
       ctx.restore();
     }
   }
+}
+function drawChain(game) {
+  const fx = game.chainFx;
+  if (!fx || fx.t <= 0) return;
+  const a = clamp(fx.t / 0.12, 0, 1);
+  ctx.save();
+  ctx.globalAlpha = a * 0.95;
+  ctx.strokeStyle = fx.color || "#c8c8e8";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 6]);
+  ctx.lineDashOffset = -game.time * 50;
+  ctx.beginPath();
+  ctx.moveTo(fx.x0, fx.y0);
+  ctx.lineTo(fx.x1, fx.y1);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.shadowColor = fx.color || "#c8c8e8"; ctx.shadowBlur = 10;
+  ctx.fillStyle = fx.color || "#c8c8e8";
+  ctx.beginPath(); ctx.arc(fx.x1, fx.y1, 5.5, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  // chain links
+  const segs = 6;
+  for (let i = 1; i < segs; i++) {
+    const t = i / segs;
+    const x = fx.x0 + (fx.x1 - fx.x0) * t;
+    const y = fx.y0 + (fx.y1 - fx.y0) * t + Math.sin(game.time * 12 + i) * 2;
+    ctx.fillStyle = i % 2 ? "#e8e3f5" : (fx.color || "#c8c8e8");
+    ctx.globalAlpha = a * 0.9;
+    ctx.beginPath(); ctx.arc(x, y, 2.2, 0, 7); ctx.fill();
+  }
+  // player anchor glow
+  ctx.globalAlpha = a * 0.7;
+  ctx.fillStyle = fx.color || "#c8c8e8";
+  ctx.beginPath(); ctx.arc(fx.x0, fx.y0, 6, 0, 7); ctx.fill();
+  ctx.restore();
 }

@@ -532,6 +532,9 @@ const ELEMENTS = { fire: "#ff8b3d", ice: "#7fd4e8", lightning: "#ffd166" };
 /* idea 52: throwable bombs as consumable */
 const BOMB = { cost: 60, dmg: [18, 26], r: 90, fuse: 1.2 };
 
+/* base chain ability — R: hook, pull, then greatsword exile (always available) */
+const CHAIN_ABILITY = { range: 280, speed: 640, cd: 5.0, pullTime: 0.32, aoeR: 125, aoeDmg: [16, 22], pushKnock: 0.55, pullGap: 26 };
+
 /* idea 53: deployables from the shop */
 const DEPLOYABLES = [
   { name: "TURRET", cost: 140, desc: "Fires at foes for 8s", icon: "🤖" },
@@ -733,7 +736,7 @@ const DEFAULT_SETTINGS = {
   zoom: 1,             // screen size multiplier (idea 20)
   keymap: {            // idea 68: key rebinding
     up: "w", down: "s", left: "a", right: "d",
-    attack: " ", secondary: "r", dash: "shift", potion: "e", bomb: "f",
+    attack: " ", secondary: "x", chain: "r", dash: "shift", potion: "e", bomb: "f",
     turret: "g", trap: "t",
     weapon: "q", primary: "c", pause: "p", mute: "m",
   },
@@ -742,7 +745,19 @@ const SETTINGS = loadSettings();
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return Object.assign(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), JSON.parse(raw));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const out = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), parsed);
+      // migrate old saves: R was secondary, now R is chain — keep chain on R, move secondary to X
+      out.keymap = Object.assign({}, DEFAULT_SETTINGS.keymap, parsed.keymap || {});
+      if (!parsed.keymap || !parsed.keymap.chain) {
+        if ((parsed.keymap && parsed.keymap.secondary) === "r") {
+          out.keymap.chain = "r";
+          out.keymap.secondary = "x";
+        } else if (!out.keymap.chain) out.keymap.chain = "r";
+      }
+      return out;
+    }
   } catch (e) { /* ignore */ }
   return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 }

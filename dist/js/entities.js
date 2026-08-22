@@ -71,6 +71,8 @@ class Enemy {
     const tempo = (this.eliteMod === "FRANTIC" ? 2 : 1) * ((G.mod && G.mod.frenzy) ? 1.35 : 1);
     this.cooldown = Math.max(0, this.cooldown - dt * tempo);
     this.hurtT = Math.max(0, this.hurtT - dt);
+    /* shield windows (boss phases, parries, WARDING) decay every frame — without this the first lord stays BLOCKED forever */
+    this.shieldT = Math.max(0, (this.shieldT || 0) - dt);
     /* flame bow: burning foes take damage over time */
     if (this.burnT > 0) {
       this.burnT -= dt;
@@ -1439,8 +1441,9 @@ class Enemy {
     for (const m of mechs) this.runMech(m, dt, game, b);
   }
 
-  // New unique patterns: telegraphed slam, homing orb, cross beam
+  // New unique patterns: telegraphed slam, homing orb, cross beam — gated so the first lord stays fair
   updateNewPatterns(dt, game) {
+    if ((G.level || 1) <= 1) return; // GOBLIN CHIEFTAIN stays readable — no extra hammers/homing
     const p = game.player;
     const b = this.boss;
     // Delayed Hammer — telegraphed AOE that forces movement
@@ -1485,8 +1488,8 @@ class Enemy {
     switch (m) {
       /* BONE WARDEN: raises a guard — frontal damage blocked while it lasts */
       case "shield": {
-        this.shieldT = Math.max(0, (this.shieldT || 0) - dt);
-        if (this.shieldT <= 0) {
+        // shieldT decays generically (top of update + updateBoss); here we only count the downtime
+        if ((this.shieldT || 0) <= 0) {
           this.mechShieldT = (this.mechShieldT || 0) - dt;
           if (this.mechShieldT <= 0) {
             this.mechShieldT = b.mechCd || 7;
@@ -1920,6 +1923,11 @@ class Projectile {
     if (this.ttl <= 0) {
       if (this.pool) this.splash(game);   // landed: leave the pool behind
       if (this.well && this.team === "player") spawnGravityWell(this.x, this.y, this.well);
+      if (this.chain && this.team === "player") {
+        // chain reached max range without a hook — the exile still comes down at your feet
+        if (typeof chainSlam === "function" && game && game.player) chainSlam(game.player.x, game.player.y);
+        else if (game && game.player) game.effects.push({ type: "ring", x: game.player.x, y: game.player.y, r: (typeof CHAIN_ABILITY!=="undefined"?CHAIN_ABILITY.aoeR:125), t: 0.3, color: "#c8c8e8" });
+      }
       return true; // remove
     }
 
@@ -1948,6 +1956,31 @@ class Projectile {
       }
     }
     if (this.team === "player") {
+      /* base chain — hook, pull, exile */
+      if (this.chain) {
+        if (game && game.player) {
+          game.chainFx = { x0: game.player.x, y0: game.player.y, x1: this.x, y1: this.y, t: 0.08, color: "#c8c8e8" };
+          game.effects.push({ type: "trail", x: this.x, y: this.y, t: 0.10, color: "#c8c8e8", r: 3 });
+        }
+        for (const e of game.enemies) {
+          if (e.isNPC || e.dead || e.phased) continue;
+          if (sweptHit(prevX, prevY, this.x, this.y, this.r, e.x, e.y, e.r)) {
+            if (e.isBoss && (e.shieldT || 0) > 0) {
+              game.effects.push({ type: "hit", x: e.x, y: e.y - 12, t: 0.3, txt: "BLOCKED", color: "#c8c8e8" });
+              if (typeof chainSlam === "function" && game.player) chainSlam(game.player.x, game.player.y);
+              return true;
+            }
+            game.chain = { target: e, t: (typeof CHAIN_ABILITY !== "undefined" ? CHAIN_ABILITY.pullTime : 0.32), total: (typeof CHAIN_ABILITY !== "undefined" ? CHAIN_ABILITY.pullTime : 0.32) };
+            game.chainFx = { x0: game.player.x, y0: game.player.y, x1: e.x, y1: e.y, t: (typeof CHAIN_ABILITY !== "undefined" ? CHAIN_ABILITY.pullTime : 0.32), color: "#c8c8e8" };
+            game.effects.push({ type: "beam", x1: game.player.x, y1: game.player.y, x2: e.x, y2: e.y, t: 0.18, color: "#c8c8e8" });
+            game.effects.push({ type: "ring", x: e.x, y: e.y, r: e.r + 10, t: 0.25, color: "#c8c8e8" });
+            if (typeof SFX !== "undefined" && SFX.hit) SFX.hit();
+            if (typeof flash === "function") flash(`⛓️ HOOKED ${e.name}!`, "#c8c8e8");
+            return true;
+          }
+        }
+        return false;
+      }
       /* idea 40: projectiles can break crates */
       for (const c of game.crates || []) {
         if (sweptHit(prevX, prevY, this.x, this.y, this.r, c.x, c.y, c.r)) {
