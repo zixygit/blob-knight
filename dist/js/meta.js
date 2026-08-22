@@ -10,9 +10,12 @@ const STATS = loadStats();
 function loadStats() {
   try {
     const raw = localStorage.getItem(STATS_KEY);
-    if (raw) return Object.assign({ runs: 0, deaths: 0, kills: 0, playtime: 0, wins: 0, weaponUses: {}, bestCombo: 0, seenEnemies: {}, unlocked: {} }, JSON.parse(raw));
+    if (raw) return Object.assign({ runs: 0, deaths: 0, kills: 0, playtime: 0, wins: 0, weaponUses: {}, bestCombo: 0, seenEnemies: {}, unlocked: {},
+      /* replayability meters — feeds unlockable modifiers, never grinding */
+      deepest: 1, elitesSlain: 0, minibossesSlain: 0, secretsFound: 0, trialsWon: 0, synergiesFound: 0 }, JSON.parse(raw));
   } catch (e) { /* ignore */ }
-  return { runs: 0, deaths: 0, kills: 0, playtime: 0, wins: 0, weaponUses: {}, bestCombo: 0, seenEnemies: {}, unlocked: {} };
+  return { runs: 0, deaths: 0, kills: 0, playtime: 0, wins: 0, weaponUses: {}, bestCombo: 0, seenEnemies: {}, unlocked: {},
+    deepest: 1, elitesSlain: 0, minibossesSlain: 0, secretsFound: 0, trialsWon: 0, synergiesFound: 0 };
 }
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(STATS)); } catch (e) { /* ignore */ }
@@ -30,6 +33,13 @@ const ACHIEVEMENTS = [
   { id: "candle", name: "CURIOUS", desc: "Find the candle secret", check: () => STATS.unlocked["candle"] },
   { id: "godmode", name: "CHEAT CODE", desc: "Enter the old code", check: () => STATS.unlocked["godmode"] },
   { id: "speedrun", name: "RUSH HOUR", desc: "Finish boss rush", check: () => STATS.unlocked["bossrush"] },
+  /* replayability pass — feats of play, not hours of grind */
+  { id: "elitehunter", name: "CHAMPION BANE", desc: "Slay 10 elite champions", check: () => (STATS.elitesSlain || 0) >= 10 },
+  { id: "tombraider", name: "TOMB RAIDER", desc: "Open a secret room", check: () => (STATS.secretsFound || 0) >= 1 },
+  { id: "trialblazer", name: "TRIALBLAZER", desc: "Complete a trial stone", check: () => (STATS.trialsWon || 0) >= 1 },
+  { id: "regicide", name: "OATHBREAKER", desc: "Slay 3 mini-bosses", check: () => (STATS.minibossesSlain || 0) >= 3 },
+  { id: "alchemist", name: "ALCHEMY", desc: "Discover a weapon synergy", check: () => (STATS.synergiesFound || 0) >= 1 },
+  { id: "echobearer", name: "THE HUMMING BLADE", desc: "Find the secret weapon", check: () => STATS.unlocked["secret_echo"] },
 ];
 function checkAchievements() {
   for (const a of ACHIEVEMENTS) if (!STATS.unlocked[a.id] && a.check()) unlockAchievement(a.id);
@@ -112,7 +122,8 @@ const DIFFICULTIES = {
   godrun: { name: "GOD RUN", mult: 2.8, desc: "180% more damage — 2 HP forever, potions only" },
 };
 function applyDifficultyMult(dmg) {
-  return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult);
+  /* cursed VOID COIN makes every foe hit a little harder */
+  return Math.round(dmg * (DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal).mult * (G.enemyDmgMult || 1));
 }
 
 /* ---------- daily challenge (idea 61) ---------- */
@@ -127,10 +138,11 @@ function startDaily() {
   beginGame();
 }
 
-/* ---------- New Game+ (idea 60) ---------- */
+/* ---------- New Game+ (idea 60) — mastery, not sponges ---------- */
 function startNewGamePlus() {
   G.ngPlus = true;
   G.runSeed = (G.runSeed || 1) + 999;
+  G.keepSeed = true;   // NG+ carries a remixed world of its own
   resetRunStart();
   /* keep weapons from the finished run */
   if (game.weapons && game.weapons.length > 1) { game.weapons = game.weapons.slice(); }

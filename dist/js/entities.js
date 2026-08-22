@@ -64,8 +64,36 @@ class Enemy {
 
   update(dt, game) {
     const p = game.player;
-    this.cooldown = Math.max(0, this.cooldown - dt * (this.eliteMod === "FRANTIC" ? 2 : 1));
+    /* FRENZY modifier quickens every foe's tempo */
+    const tempo = (this.eliteMod === "FRANTIC" ? 2 : 1) * ((G.mod && G.mod.frenzy) ? 1.35 : 1);
+    this.cooldown = Math.max(0, this.cooldown - dt * tempo);
     this.hurtT = Math.max(0, this.hurtT - dt);
+    /* flame bow: burning foes take damage over time */
+    if (this.burnT > 0) {
+      this.burnT -= dt;
+      this.hp -= (this.burnDps || 3) * dt;
+      if (Math.random() < 0.25) game.effects.push({ type: "spark", x: this.x + rand(-6, 6), y: this.y - this.r, vx: 0, vy: -rand(20, 50), t: 0.25, color: "#ff8b3d" });
+      if (this.hp <= 0) { game.killEnemy(this); return; }
+    }
+    /* SANGUINE EDGE: twin-blade bleeds stack and tick */
+    if (this.bleedN > 0) {
+      this.bleedT -= dt;
+      if (this.bleedT <= 0) this.bleedN = 0;
+      else {
+        this.hp -= 2 * this.bleedN * dt;
+        if (Math.random() < 0.12) game.effects.push({ type: "spark", x: this.x + rand(-5, 5), y: this.y - this.r, vx: 0, vy: -rand(15, 40), t: 0.2, color: "#ff6b6b" });
+        if (this.hp <= 0) { game.killEnemy(this); return; }
+      }
+    }
+    /* PHASING elites slip between worlds — learn the rhythm or waste your swings */
+    if (this.eliteMod === "PHASING" && !this.isBoss) {
+      this.phaseT = (this.phaseT === undefined ? rand(2, 4) : this.phaseT) - dt;
+      if (this.phaseT <= 0) {
+        this.phased = !this.phased;
+        this.phaseT = this.phased ? 0.8 : rand(2.5, 4);
+        game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.25 });
+      }
+    }
     /* idea 30: elite mods — regen over time */
     if (this.eliteMod === "REGENERATIVE" && this.hp < this.maxHp) {
       this.hp = Math.min(this.maxHp, this.hp + 1.5 * dt);
@@ -180,6 +208,12 @@ class Enemy {
       case "rift_mage": this.behaveRiftMage(dt, game, p); break;
       case "executioner": this.behaveExecutioner(dt, game, p); break;
       case "chain_beast": this.behaveChainBeast(dt, game, p); break;
+      /* replayability: mini-bosses + the gilded mimic */
+      case "mb_warden":     this.behaveMBWarden(dt, game, p); break;
+      case "mb_paragon":    this.behaveMBParagon(dt, game, p); break;
+      case "mb_glutton":    this.behaveMBGlutton(dt, game, p); break;
+      case "mb_nullsinger": this.behaveMBNullsinger(dt, game, p); break;
+      case "gilded_mimic":  this.behaveGildedMimic(dt, game, p); break;
     }
     this.speed = baseSpeed;
     this.clamp();
@@ -198,6 +232,9 @@ class Enemy {
     if (dist(this, p) < this.r + p.r && this.cooldown <= 0) {
       this.cooldown = 0.9;
       game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      /* rare elite contact powers */
+      if (this.eliteMod === "VENOMOUS") { G.slowT = Math.max(G.slowT, 1.4); game.flash("VENOM — slowed!", "#7ac74f"); }
+      if (this.eliteMod === "VAMPIRIC") { this.hp = Math.min(this.maxHp, this.hp + 6); game.effects.push({ type: "heal", x: this.x, y: this.y - 14, t: 0.4, txt: "+6", color: "#ff6b6b" }); }
       if (this.burn) {   // idea 30: SCALDING elite mod
         game.damagePlayer(3, this.x, this.y, "slow");
         game.flash("SCALDED!", "#ff5a2a");
@@ -1036,6 +1073,153 @@ class Enemy {
     }
   }
 
+  /* ---------- replayability: mini-bosses — each punishes a strategy ---------- */
+
+  /* WARDEN OF BOLTS: anti-ranged — point defense erases projectiles, melee is the answer */
+  behaveMBWarden(dt, game, p) {
+    this.dodgeIncoming(dt, game);
+    const d = Math.max(1, dist(this, p));
+    const want = 240;
+    if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.8 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.8 * dt; }
+    else if (d > want + 40) { this.x += (p.x - this.x) / d * this.speed * dt; this.y += (p.y - this.y) / d * this.speed * dt; }
+    /* point defense: periodically sweeps incoming shots out of the air */
+    this.pdCd = (this.pdCd === undefined ? 2.2 : this.pdCd) - dt;
+    if (this.pdCd <= 0) {
+      let zapped = 0;
+      for (let i = game.projectiles.length - 1; i >= 0; i--) {
+        const pr = game.projectiles[i];
+        if (pr.team !== "player" || dist(pr, this) > 95) continue;
+        game.effects.push({ type: "spark", x: pr.x, y: pr.y, vx: 0, vy: -60, t: 0.2, color: "#5ab8ff" });
+        game.projectiles.splice(i, 1);
+        zapped++;
+      }
+      if (zapped) { game.flash(`${this.name} sweeps your shots aside!`, "#5ab8ff"); game.SFX && game.SFX.shield(); }
+      this.pdCd = 2.2;
+    }
+    if (this.cooldown <= 0) {
+      this.cooldown = 2.4;
+      const base = Math.atan2(p.y - this.y, p.x - this.x);
+      for (let i = 0; i < 5; i++) {
+        const ang = base + (i - 2) * 0.22;
+        game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang) * 300, Math.sin(ang) * 300, 5, rand(this.dmg[0], this.dmg[1]), "#5ab8ff"));
+      }
+    }
+  }
+
+  /* BLADE PARAGON: anti-melee — parries swings up close, dashes in for a triple cut */
+  behaveMBParagon(dt, game, p) {
+    const d = dist(this, p);
+    /* read the player's swing: if a melee arc comes in, raise the guard */
+    if (d < 90 && p.swing > 0.12 && (this.parryCd || 0) <= 0) {
+      this.shieldT = 0.4;
+      this.parryCd = 1.6;
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 10, t: 0.4, color: "#e8d17a" });
+      game.flash(`${this.name} PARRIES!`, "#e8d17a");
+      game.SFX && game.SFX.shield();
+    }
+    this.parryCd = Math.max(0, (this.parryCd || 0) - dt);
+    if (this.lungeT > 0) {
+      this.lungeT -= dt;
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      this.x += Math.cos(ang) * 340 * dt;
+      this.y += Math.sin(ang) * 340 * dt;
+      if (dist(this, p) < this.r + p.r + 8 && this.cooldown <= 0) {
+        this.cooldown = 0.5;
+        game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      }
+      this.clamp();
+      return;
+    }
+    const ang = Math.atan2(p.y - this.y, p.x - this.x);
+    this.x += Math.cos(ang) * this.speed * 0.6 * dt;
+    this.y += Math.sin(ang) * this.speed * 0.6 * dt;
+    this.dashCd2 = (this.dashCd2 === undefined ? 2.6 : this.dashCd2) - dt;
+    if (this.dashCd2 <= 0 && d > 110 && d < 300) {
+      this.dashCd2 = rand(2.4, 3.6);
+      this.lungeT = 0.45;
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 8, t: 0.35, color: "#e8d17a" });
+    }
+  }
+
+  /* THE GLUTTON: anti-grouping — swallows small foes to mend itself, slams hard */
+  behaveMBGlutton(dt, game, p) {
+    /* feast: eats any nearby runt and heals — punishing swarm/group play */
+    for (const o of [...game.enemies]) {
+      if (o === this || o.dead || o.isNPC) continue;
+      const small = o.kind === "swarm" || o.kind === "imp" || o.r <= 10;
+      if (small && dist(this, o) < this.r + o.r + 8) {
+        game.effects.push({ type: "boom", x: o.x, y: o.y, t: 0.3 });
+        game.killEnemy(o, true);
+        this.hp = Math.min(this.maxHp, this.hp + 20);
+        this.fed = (this.fed || 0) + 1;
+        game.effects.push({ type: "heal", x: this.x, y: this.y - 16, t: 0.4, txt: "+20", color: "#6bff9a" });
+        game.flash(`${this.name} DEVOURS a runt!`, "#b83a3a");
+      }
+    }
+    const d = dist(this, p);
+    if (d > this.r + p.r + 16) {
+      const ang = Math.atan2(p.y - this.y, p.x - this.x);
+      const sp = this.speed * (1 + Math.min(0.6, (this.fed || 0) * 0.15));
+      this.x += Math.cos(ang) * sp * dt;
+      this.y += Math.sin(ang) * sp * dt;
+    } else if (this.cooldown <= 0) {
+      this.cooldown = 1.4;
+      game.damagePlayer(rand(this.dmg[0], this.dmg[1]), this.x, this.y);
+      game.shake = Math.max(game.shake, 0.18);
+    }
+  }
+
+  /* NULLSINGER: anti-slow-damage — phases out between strikes, calls the void */
+  behaveMBNullsinger(dt, game, p) {
+    this.nsCd = (this.nsCd === undefined ? 4.5 : this.nsCd) - dt;
+    if (this.nsCd <= 0) {
+      this.nsCd = rand(4.5, 6);
+      this.phased = true;
+      this.phaseT2 = 1.1;
+      game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+      game.flash(`${this.name} slips out of reach…`, "#a78bfa");
+      for (let i = 0; i < 2; i++) {
+        const imp = new Enemy(Object.assign({}, ENEMY_TYPES.imp, { name: "NULL MOTE" }),
+          clamp(this.x + rand(-40, 40), CFG.MARGIN, CFG.W - CFG.MARGIN),
+          clamp(this.y + rand(-40, 40), CFG.MARGIN, CFG.H - CFG.MARGIN));
+        imp.summoned = true;
+        game.enemies.push(imp);
+      }
+    }
+    if (this.phaseT2 > 0) {
+      this.phaseT2 -= dt;
+      if (this.phaseT2 <= 0) this.phased = false;
+      return;   // gone — burst damage during the visible window is the counter
+    }
+    const d = Math.max(1, dist(this, p));
+    const want = 220;
+    if (d < want - 40) { this.x -= (p.x - this.x) / d * this.speed * 0.8 * dt; this.y -= (p.y - this.y) / d * this.speed * 0.8 * dt; }
+    else if (d > want + 40) { this.x += (p.x - this.x) / d * this.speed * dt; this.y += (p.y - this.y) / d * this.speed * dt; }
+    if (this.cooldown <= 0) {
+      this.cooldown = 2.6;
+      const base = Math.atan2(p.y - this.y, p.x - this.x);
+      for (let i = 0; i < 3; i++) {
+        const ang = base + (i - 1) * 0.3;
+        game.projectiles.push(new Projectile("enemy", this.x, this.y, Math.cos(ang) * 270, Math.sin(ang) * 270, 6, rand(this.dmg[0], this.dmg[1]), "#a78bfa"));
+      }
+    }
+  }
+
+  /* GILDED MIMIC: bolts with the treasure — kill it before it slips away */
+  behaveGildedMimic(dt, game, p) {
+    this.despawnT = (this.despawnT === undefined ? 9 : this.despawnT) - dt;
+    if (this.despawnT <= 0) {
+      game.flash("The mimic escapes with the gold…", "#9a90b8");
+      game.effects.push({ type: "boom", x: this.x, y: this.y, t: 0.3 });
+      game.killEnemy(this, true);
+      return;
+    }
+    const ang = Math.atan2(this.y - p.y, this.x - p.x) + Math.sin(game.time * 3) * 0.7;
+    this.x = clamp(this.x + Math.cos(ang) * this.speed * dt, CFG.MARGIN, CFG.W - CFG.MARGIN);
+    this.y = clamp(this.y + Math.sin(ang) * this.speed * dt, CFG.MARGIN, CFG.H - CFG.MARGIN);
+    if (Math.random() < 0.2) game.effects.push({ type: "spark", x: this.x + rand(-8, 8), y: this.y + rand(-8, 8), vx: 0, vy: -30, t: 0.3, color: "#ffd166" });
+  }
+
   /* ---------- boss AI: chase + volley + radial + spiral + summon + enrages ---------- */
   updateBoss(dt, game) {
     const p = game.player;
@@ -1061,6 +1245,17 @@ class Enemy {
       game.flash(`${this.name} is ENRAGED!`, "#ff5a2a");
       game.slowmoT = 0.9;                    // idea 31: slow-mo cinematic
       game.shake = Math.max(game.shake, 0.3);
+      game.SFX && game.SFX.boss();
+    }
+    /* New Game+ secret — the SECOND CROWN: once, at the brink, the lord mends */
+    if (b.secondCrown && !this.crownUsed && this.hp < this.maxHp * 0.12) {
+      this.crownUsed = true;
+      this.hp = Math.round(this.maxHp * 0.18);
+      this.shieldT = 1.5;
+      game.flash(`${this.name} dons the SECOND CROWN!`, "#ff2a6a");
+      game.slowmoT = 0.8;
+      game.shake = Math.max(game.shake, 0.35);
+      game.effects.push({ type: "ring", x: this.x, y: this.y, r: this.r + 44, t: 0.7, color: "#ff2a6a" });
       game.SFX && game.SFX.boss();
     }
     if (!this.enraged2 && b.enrage2At && this.hp < this.maxHp * b.enrage2At) {
@@ -1445,7 +1640,8 @@ class Enemy {
 }
 
 /* ---------- projectiles (player bolts & enemy shots) ----------
-   opts: { slow: seconds, boom: bool, boomR: px } */
+   opts: { slow, boom, boomR, boomDmg, boomerang, bomb, fuse, pool, bounce,
+           chakram, pierce, burn, well, src, bolt } */
 function sweptHit(ax, ay, bx, by, r, ex, ey, er){
   const cr = r + er;
   const abx = bx - ax, aby = by - ay;
@@ -1456,6 +1652,49 @@ function sweptHit(ax, ay, bx, by, r, ex, ey, er){
   t = Math.max(0, Math.min(1, t));
   const cx = ax + abx*t, cy = ay + aby*t;
   return Math.hypot(ex - cx, ey - cy) < cr;
+}
+
+/* on-hit riders shared by every player projectile: flame bow ignites,
+   void dagger streaks build into an attack-speed frenzy */
+function onPlayerProjectileHit(pr, e, game) {
+  if (pr.burn && !e.isBoss) { e.burnT = 2.5; e.burnDps = 3; }
+  else if (pr.burn) { e.burnT = 1.6; e.burnDps = 3; }   // bosses shrug off most of the blaze
+  /* TEMPEST: lightning spear bolts leap to one more foe */
+  if (pr.src === "lspear" && (G.syn || []).includes("tempest") && !e.dead) {
+    let target = null, best = 150;
+    for (const o of game.enemies) {
+      if (o === e || o.dead || o.isNPC || o.phased) continue;
+      const d = dist(e, o);
+      if (d < best) { best = d; target = o; }
+    }
+    if (target) {
+      game.effects.push({ type: "beam", x1: e.x, y1: e.y, x2: target.x, y2: target.y, t: 0.15, color: "#ffd166" });
+      const hit = game.playerDamage();
+      game.hurtEnemy(target, Math.round(hit.d * 0.6), 0, 0, { knock: 0.1, crit: hit.crit, color: "#ffd166" });
+    }
+  }
+  /* COMBUSTION: bolt weapons pop burning foes like dry kindling */
+  if (!pr.burn && e.burnT > 0 && (G.syn || []).includes("combustion") && !e.dead && !e.isNPC) {
+    const burst = 6 + G.level;
+    e.burnT = 0;
+    game.effects.push({ type: "boom", x: e.x, y: e.y, t: 0.3 });
+    game.effects.push({ type: "hit", x: e.x, y: e.y - 16, t: 0.3, txt: "COMBUST!", color: "#ff8b3d" });
+    for (const o of [...game.enemies]) {
+      if (o === e || o.isNPC) continue;
+      if (dist(e, o) < 55) game.hurtEnemy(o, Math.round(burst * 0.6), 0, 0, { knock: 0.15, color: "#ff8b3d" });
+    }
+    game.hurtEnemy(e, burst, 0, 0, { knock: 0.15, color: "#ff8b3d" });
+  }
+  if (pr.src === "void" && !e.dead) {
+    G.voidStreak = (G.voidStreakT > 0 ? G.voidStreak : 0) + 1;
+    G.voidStreakT = 2.5;
+    if (G.voidStreak >= 3) {
+      G.voidStreak = 0;
+      G.voidBuffT = 3.5;
+      if (typeof flash === "function") flash("VOID FRENZY — attacks hastened!", "#a88cff");
+      game.effects.push({ type: "ring", x: game.player.x, y: game.player.y, r: 30, t: 0.5, color: "#a88cff" });
+    }
+  }
 }
 class Projectile {
   constructor(team, x, y, vx, vy, r, dmg, color, opts) {
@@ -1474,6 +1713,14 @@ class Projectile {
     this.fuse = (opts && opts.fuse) || 0;
     this.pool = (opts && opts.pool) || null;       // chapter two: splashes into a hazard zone
     this.bounce = (opts && opts.bounce) || 0;      // chapter two: glass shards ricochet off walls
+    this.chakram = !!(opts && opts.chakram);       // disc: bounces once, returns, re-cuts on the way back
+    this.returning = false;
+    this.ricocheting = !!(opts && opts.ricochet);  // ricochet gun: caroms off walls
+    this.pierce = !!(opts && opts.pierce);         // lightning bolt: passes through foes
+    this.burn = !!(opts && opts.burn);             // flame bow: ignites the target
+    this.well = (opts && opts.well) || null;       // gravity orb: collapses into a pull zone
+    this.src = (opts && opts.src) || null;         // firing weapon (void dagger streak tracking)
+    this.bolt = !!(opts && opts.bolt);             // elongated lightning render
     this.hitSet = new Set();
     this.px = x; this.py = y; // previous pos for swept
   }
@@ -1498,6 +1745,21 @@ class Projectile {
         if (dist(this, p) < 24) return true;   // caught
       }
     }
+    /* chakram: flies out, then carves its way back to the hand —
+       the return leg may cut the same foe again */
+    if (this.chakram) {
+      this.t += dt;
+      if (!this.returning && this.t > 0.5) { this.returning = true; this.hitSet.clear(); }
+      if (this.returning) {
+        const p = game.player;
+        const ang = Math.atan2(p.y - this.y, p.x - this.x);
+        this.vx += Math.cos(ang) * 900 * dt;
+        this.vy += Math.sin(ang) * 900 * dt;
+        const sp = Math.hypot(this.vx, this.vy);
+        if (sp > 430) { this.vx = this.vx / sp * 430; this.vy = this.vy / sp * 430; }
+        if (dist(this, p) < 26) return true;   // caught
+      }
+    }
     // Homing orb — new boss pattern
     if (this.homing) {
       const p = game.player;
@@ -1513,13 +1775,17 @@ class Projectile {
     // God Run perk 3: Sword Bounce — player projectiles bounce
     const canBounce = G.difficulty === "godrun" && typeof isGodPerkUnlocked === "function" && isGodPerkUnlocked(3) && this.team === "player";
     if (this.x < 0 || this.x > CFG.W || this.y < 0 || this.y > CFG.H) {
-      if (this.bounce > 0 && this.team === "enemy") {
-        /* chapter two: glass shards ricochet — corners stop being safe */
+      if (this.bounce > 0 && (this.team === "enemy" || this.chakram || this.ricocheting)) {
+        /* ricochet: enemy glass shards + player chakram/ricochet shots carom off walls */
         if (this.x < 0 || this.x > CFG.W) this.vx = -this.vx;
         if (this.y < 0 || this.y > CFG.H) this.vy = -this.vy;
         this.x = clamp(this.x, 0, CFG.W);
         this.y = clamp(this.y, 0, CFG.H);
         this.bounce--;
+        this.hitSet.clear();                       // a carom lets it cut the same foe again
+        if (this.chakram) this.returning = true;   // the wall sends the disc home
+        game.effects.push({ type: "spark", x: this.x, y: this.y, vx: (Math.random() - 0.5) * 120, vy: (Math.random() - 0.5) * 120, t: 0.2, color: this.color });
+        SFX.hit();
       } else if (canBounce && this.ttl > 0.5) {
         if (this.x < 0 || this.x > CFG.W) this.vx = -this.vx * 0.95;
         if (this.y < 0 || this.y > CFG.H) this.vy = -this.vy * 0.95;
@@ -1535,6 +1801,7 @@ class Projectile {
     }
     if (this.ttl <= 0) {
       if (this.pool) this.splash(game);   // landed: leave the pool behind
+      if (this.well && this.team === "player") spawnGravityWell(this.x, this.y, this.well);
       return true; // remove
     }
 
@@ -1590,17 +1857,23 @@ class Projectile {
             game.explodePlayer(this.x, this.y, this.boomR, this.boomDmg);
             return true; // bolt consumed
           }
-          if (this.boomerang) {           // idea 50: hit each enemy once, keep flying — swept
+          if (this.well) {                          // gravity orb: collapse on first contact
+            spawnGravityWell(this.x, this.y, this.well);
+            return true;
+          }
+          if (this.boomerang || this.chakram || this.pierce) {   // pass through: hit each foe once per leg
             if (this.hitSet.has(e)) continue;
             this.hitSet.add(e);
             const hit = game.playerDamage();
             game.hurtEnemy(e, hit.d, Math.cos(Math.atan2(this.vy, this.vx)) * 6, Math.sin(Math.atan2(this.vy, this.vx)) * 6,
               { knock: 0.18, crit: hit.crit });
+            onPlayerProjectileHit(this, e, game);
             continue;
           }
           const hit = game.playerDamage();
           game.hurtEnemy(e, hit.d, Math.cos(Math.atan2(this.vy, this.vx)) * 6, Math.sin(Math.atan2(this.vy, this.vx)) * 6,
             { knock: 0.18, crit: hit.crit });
+          onPlayerProjectileHit(this, e, game);
           return true; // bolt consumed
         }
       }

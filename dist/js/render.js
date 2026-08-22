@@ -169,7 +169,10 @@ function draw(game) {
   /* idea 43: minimap */
   drawMinimap(game);
 
+  drawSecrets(game);
+  drawTrialStone(game);
   drawHazardZones(game);
+  drawGravityWells(game);
   drawLoot(game);
   drawDoor(game);
   drawWaves(game);
@@ -177,6 +180,30 @@ function draw(game) {
   drawProjectiles(game);
   drawPlayer(game);
   drawEffects(game);
+
+  /* DARK RUN modifier: the arena narrows to a lantern's reach */
+  if (G.mod && G.mod.dark && game.G.phase === "play") {
+    const p = game.player;
+    const grad = ctx.createRadialGradient(p.x, p.y, 90, p.x, p.y, 230);
+    grad.addColorStop(0, "rgba(5,4,10,0)");
+    grad.addColorStop(1, "rgba(5,4,10,0.94)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CFG.W, CFG.H);
+  }
+
+  /* active trial: name + progress, pinned under the boss bar */
+  if (G.trial && G.trial.phase === "active") {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.font = "bold 13px monospace";
+    ctx.fillStyle = "#ffd166";
+    let txt = `⚔ ${G.trial.name}`;
+    if (G.trial.type === "time") txt += ` — ${Math.max(0, Math.ceil(G.trial.t))}s · ${G.trial.kills}/${G.trial.needKills}`;
+    else if (G.trial.needKills) txt += ` — ${G.trial.kills}/${G.trial.needKills}`;
+    else if (G.trial.type === "horde") txt += ` — WAVE ${Math.min(3, G.trial.wave)}/3`;
+    ctx.fillText(txt, CFG.W / 2, 118);
+    ctx.restore();
+  }
 
   /* idea 81: palette shift — zone accent wash */
   ctx.save();
@@ -216,8 +243,83 @@ function drawHazardZones(game) {
   }
 }
 
+/* secret wall cracks: a faint fissure that hums when you get close */
+function drawSecrets(game) {
+  for (const s of game.secrets || []) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    const pulse = 0.35 + 0.25 * Math.sin(game.time * 4);
+    if (!s.found) {
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = "#ffd166";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-10, -4); ctx.lineTo(-3, 0); ctx.lineTo(-6, 5); ctx.lineTo(2, 2); ctx.lineTo(5, 7);
+      ctx.stroke();
+      /* the nearby player makes it glow — the hint to look closer */
+      if (game.player && dist(s, game.player) < 120) {
+        ctx.globalAlpha = pulse * 0.6;
+        ctx.beginPath(); ctx.arc(0, 0, 12 + 3 * Math.sin(game.time * 6), 0, 7); ctx.stroke();
+      }
+    } else {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#ffd166";
+      ctx.fillRect(-8, -6, 16, 12);
+      ctx.globalAlpha = 0.25 + 0.15 * Math.sin(game.time * 3);
+      ctx.beginPath(); ctx.arc(0, 0, 16, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+/* trial stones: a humming monolith with the trial's sigil */
+function drawTrialStone(game) {
+  const st = game.trialStone;
+  if (!st || st.used) return;
+  ctx.save();
+  ctx.translate(st.x, st.y);
+  const pulse = 0.5 + 0.3 * Math.sin(game.time * 3);
+  ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 10;
+  ctx.fillStyle = "#3a2c5a";
+  ctx.beginPath();
+  ctx.moveTo(0, -18); ctx.lineTo(12, 0); ctx.lineTo(0, 18); ctx.lineTo(-12, 0); ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = `rgba(255,209,102,${pulse})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = `rgba(255,209,102,${pulse})`;
+  ctx.font = "bold 11px monospace"; ctx.textAlign = "center";
+  ctx.fillText("⚔", 0, 4);
+  ctx.restore();
+}
+
+/* gravity orb: collapsed singularity — swirling pull zone */
+function drawGravityWells(game) {
+  for (const w of game.gravityWells || []) {
+    const a = clamp(w.t / (w.max || 1.6), 0, 1);
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.globalAlpha = (0.10 + 0.05 * Math.sin(game.time * 9)) * a;
+    ctx.fillStyle = "#7a4ae8";
+    ctx.beginPath(); ctx.arc(0, 0, w.r, 0, 7); ctx.fill();
+    ctx.globalAlpha = (0.55 + 0.3 * Math.sin(game.time * 7)) * a;
+    ctx.strokeStyle = "#a88cff";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const off = game.time * 3.2 + i * 2.1;
+      ctx.beginPath();
+      ctx.arc(0, 0, w.r * (0.32 + i * 0.22), off, off + 2.2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#c0a8f0";
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+}
+
 function drawLoot(game) {
-  const colors = { gold: "#ffd166", potion: "#ff6b6b", herb: "#6bff9a", stone: "#e8e3f5", charm: "#c084fc", rune: "#8fd4ff", perk: "#c084fc" };  const cb = SETTINGS.colorblind !== "off";
+  const colors = { gold: "#ffd166", potion: "#ff6b6b", herb: "#6bff9a", stone: "#e8e3f5", charm: "#c084fc", rune: "#8fd4ff", perk: "#c084fc",
+    lore: "#e8d17a", voucher: "#6fc3ff", secretweapon: "#c0a8f0" };  const cb = SETTINGS.colorblind !== "off";
   for (const l of game.G.loot) {
     ctx.save();
     ctx.translate(l.x, l.y + Math.sin(l.t * 4) * 2);
@@ -487,7 +589,27 @@ function drawProjectiles(game) {
     ctx.shadowColor = pr.color;
     ctx.shadowBlur = 10;
     ctx.fillStyle = pr.color;
-    ctx.beginPath(); ctx.arc(0, 0, pr.r, 0, 7); ctx.fill();
+    if (pr.bolt) {            // lightning spear: crackling streak
+      const ln = Math.hypot(pr.vx, pr.vy) || 1;
+      ctx.strokeStyle = pr.color;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-pr.vx / ln * 18, -pr.vy / ln * 18);
+      ctx.lineTo(pr.vx / ln * 8, pr.vy / ln * 8);
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(pr.vx / ln * 6, pr.vy / ln * 6, 2.5, 0, 7); ctx.fill();
+    } else if (pr.chakram) {  // spinning disc
+      ctx.rotate(game.time * 14);
+      ctx.strokeStyle = pr.color;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, pr.r, 0.3, Math.PI * 2 - 0.3); ctx.stroke();
+      ctx.fillStyle = pr.color;
+      ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(0, 0, pr.r, 0, 7); ctx.fill();
+    }
     if (pr.boom) {           // staff fireball core
       ctx.fillStyle = "#ffd166";
       ctx.beginPath(); ctx.arc(0, 0, pr.r * 0.45, 0, 7); ctx.fill();
@@ -506,17 +628,18 @@ function drawPlayer(game) {
   ctx.save();
   ctx.translate(p.x, p.y);
 
-  // idea 7: slash-arc afterimages (last 3 arcs)
+  // idea 7: slash-arc afterimages (last few arcs; weapons size their own arc)
   for (const a of game.arcs || []) {
     const fade = clamp(a.t / 0.25, 0, 1);
+    const R = a.r || 36, ARC = a.arc || 1.0;
     ctx.save();
     ctx.globalAlpha = fade * 0.45;
-    ctx.strokeStyle = "#e8e3f5";
+    ctx.strokeStyle = a.color || "#e8e3f5";
     ctx.lineWidth = 4;
     ctx.lineCap = "round";
-    const a0 = a.ang - 1.0;
+    const a0 = a.ang - ARC;
     ctx.beginPath();
-    ctx.arc(0, 0, 36, Math.min(a0, a.ang), Math.max(a0, a.ang));
+    ctx.arc(0, 0, R, Math.min(a0, a.ang), Math.max(a0, a.ang));
     ctx.stroke();
     ctx.restore();
   }

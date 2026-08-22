@@ -482,16 +482,32 @@ const LEVELS = {
   },
 };
 
-/* ---------- weapon catalog ---------- */
+/* ---------- weapon catalog ----------
+   type: "melee" = primary hand (SPACE), "ranged" = secondary hand (R)
+   unlock: shop depth gate — the weapon stock expands as the run descends */
 const WEAPONS = {
-  sword:    { name: "SWORD",       icon: "⚔️", cd: 0.45, cost: 0,   desc: "Arc slash" },
-  wave:     { name: "WAVE BLADE",  icon: "🌊", cd: 1.30, cost: 150, desc: "Shockwave burst" },
-  crossbow: { name: "CROSSBOW",    icon: "🏹", cd: 0.28, cost: 200, desc: "Fast bolts" },
-  staff:    { name: "EMBER STAFF", icon: "🔥", cd: 0.9,  cost: 300, desc: "Explosive fireball" },
-  spear:    { name: "SPEAR",       icon: "🔱", cd: 0.7,  cost: 220, desc: "Long lunge + pierce" },
-  boomerang:{ name: "BOOMERANG",   icon: "🪃", cd: 0.9,  cost: 260, desc: "Returns, hits twice" },
-  orbs:     { name: "ORBIT ORBS",  icon: "🪐", cd: 0.1,  cost: 280, desc: "Orbiting shards" },
-  chain:    { name: "CHAIN LIGHTNING", icon: "⚡", cd: 1.1, cost: 350, desc: "Arc to 3 foes" },
+  /* melee — primary hand */
+  sword:     { name: "SWORD",        icon: "⚔️", type: "melee",  cd: 0.40, cost: 0,   unlock: 1, desc: "Arc slash · parry window" },
+  chainblade:{ name: "CHAIN BLADE",  icon: "⛓️", type: "melee",  cd: 0.58, cost: 220, unlock: 2, desc: "Long reach sweep · hits groups" },
+  twin:      { name: "TWIN BLADES",  icon: "🗡️", type: "melee",  cd: 0.24, cost: 240, unlock: 2, desc: "Very fast · low damage · fast combo" },
+  scythe:    { name: "SCYTHE",       icon: "🌾", type: "melee",  cd: 0.62, cost: 260, unlock: 3, desc: "Huge sweep arc · drags foes in" },
+  hammer:    { name: "WAR HAMMER",   icon: "🔨", type: "melee",  cd: 1.15, cost: 320, unlock: 4, desc: "Slow · massive damage + knockback" },
+  leech:     { name: "LEECH BLADE",  icon: "🩸", type: "melee",  cd: 0.52, cost: 340, unlock: 5, desc: "Heals 12% of damage dealt" },
+  echo:      { name: "ECHO BLADE",   icon: "👻", type: "melee",  cd: 0.45, cost: 0,   unlock: 99, secret: true, desc: "Every swing releases a spectral slash" },
+  /* ranged — secondary hand */
+  wave:      { name: "WAVE BLADE",   icon: "🌊", type: "ranged", cd: 1.30, cost: 150, unlock: 1, desc: "Shockwave burst" },
+  crossbow:  { name: "CROSSBOW",     icon: "🎯", type: "ranged", cd: 0.28, cost: 200, unlock: 1, desc: "Fast bolts" },
+  bow:       { name: "FLAME BOW",    icon: "🏹", type: "ranged", cd: 0.36, cost: 240, unlock: 3, desc: "Burning arrows · ignites foes" },
+  spear:     { name: "SPEAR",        icon: "🔱", type: "ranged", cd: 0.7,  cost: 220, unlock: 2, desc: "Long lunge + pierce" },
+  chakram:   { name: "CHAKRAM",      icon: "💿", type: "ranged", cd: 0.85, cost: 260, unlock: 3, desc: "Ricochets · cuts twice" },
+  boomerang: { name: "BOOMERANG",    icon: "🪃", type: "ranged", cd: 0.9,  cost: 260, unlock: 2, desc: "Returns, hits twice" },
+  lspear:    { name: "LIGHTNING SPEAR", icon: "🌩️", type: "ranged", cd: 0.95, cost: 280, unlock: 3, desc: "Thrust + lightning bolt" },
+  ricochet:  { name: "RICOCHET GUN", icon: "🔫", type: "ranged", cd: 0.5,  cost: 300, unlock: 4, desc: "Shots bounce off walls" },
+  staff:     { name: "EMBER STAFF",  icon: "🔥", type: "ranged", cd: 0.9,  cost: 300, unlock: 2, desc: "Explosive fireball" },
+  void:      { name: "VOID DAGGER",  icon: "🌑", type: "ranged", cd: 0.30, cost: 300, unlock: 5, desc: "Fast blades · hit streaks hasten you" },
+  gravity:   { name: "GRAVITY ORB",  icon: "🕳️", type: "ranged", cd: 1.5,  cost: 320, unlock: 5, desc: "Pulls foes together" },
+  orbs:      { name: "ORBIT ORBS",   icon: "🪐", type: "ranged", cd: 0.1,  cost: 280, unlock: 3, desc: "Orbiting shards" },
+  chain:     { name: "CHAIN LIGHTNING", icon: "⚡", type: "ranged", cd: 1.1, cost: 350, unlock: 4, desc: "Arc to 3 foes" },
 };
 
 /* idea 51: elemental damage + zone weaknesses */
@@ -508,12 +524,141 @@ const DEPLOYABLES = [
   { name: "BEAR TRAP", cost: 90, desc: "Holds foes in place", icon: "🪤" },
 ];
 
-/* idea 54: cursed items — strong with a downside */
+/* idea 54: cursed items — strong with a downside. Each is bought by name,
+   once per run; the drawback is mechanical, not just a stat shave. */
 const CURSED_ITEMS = [
-  { name: "DRAINBLADE", desc: "+8 ATK but -20 max HP", apply: () => { G.atk += 8; G.maxHp = Math.max(30, G.maxHp - 20); G.hp = Math.min(G.hp, G.maxHp); } },
-  { name: "VELOCITY RUNE", desc: "+25% speed but -15% crit", apply: () => { CFG.PLAYER.speed *= 1.25; G.crit = Math.max(0, G.crit - 0.15); } },
-  { name: "GREED SPIRE", desc: "+50% gold but take +20% damage", apply: () => { G.goldMult *= 1.5; G.dmgTakenMult = (G.dmgTakenMult || 1) * 1.2; } },
+  { id: "blood_pact", name: "BLOOD PACT", icon: "🩸", cost: 120,
+    benefit: "+25% attack damage", drawback: "-10 max HP",
+    apply: () => { G.atkMult = (G.atkMult || 1) * 1.25; G.maxHp = Math.max(30, G.maxHp - 10); G.hp = Math.min(G.hp, G.maxHp); } },
+  { id: "glass_edge", name: "GLASS EDGE", icon: "💠", cost: 140,
+    benefit: "+40% critical damage", drawback: "taking a hit disables your attacks 3s",
+    apply: () => { G.critDmg = (G.critDmg || 0) + 0.4; G.glassEdge = true; } },
+  { id: "void_coin", name: "VOID COIN", icon: "🪙", cost: 130,
+    benefit: "+50% gold from drops", drawback: "enemies deal +15% damage",
+    apply: () => { G.goldMult = (G.goldMult || 1) * 1.5; G.enemyDmgMult = (G.enemyDmgMult || 1) * 1.15; } },
+  { id: "velocity", name: "VELOCITY RUNE", icon: "💨", cost: 110,
+    benefit: "+25% move speed", drawback: "-15% crit chance",
+    apply: () => { G.spdMult = (G.spdMult || 1) * 1.25; G.crit = Math.max(0, G.crit - 0.15); } },
+  /* New Game+ only — the depths remember you */
+  { id: "paradox", name: "PARADOX IDOL", icon: "⏳", cost: 150, ngPlusOnly: true,
+    benefit: "+35% attack speed", drawback: "foes move 20% faster",
+    apply: () => { G.asMult = (G.asMult || 1) * 0.65; G.foeSpeedMult = (G.foeSpeedMult || 1) * 1.2; } },
+  { id: "pyre", name: "PYRE HEART", icon: "🔥", cost: 160, ngPlusOnly: true,
+    benefit: "every hit ignites foes", drawback: "you take +25% damage",
+    apply: () => { G.pyreHeart = true; G.dmgTakenMult = (G.dmgTakenMult || 1) * 1.25; } },
 ];
+
+/* ============================================================
+   REPLAYABILITY LAYER — seeded variety, not noise.
+   Every system below rolls from the run seed, so the same
+   seed (daily challenge) replays identically.
+   ============================================================ */
+
+/* ---------- seeded RNG ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function rngPick(rng,arr){return arr[Math.floor(rng()*arr.length)]}
+function rngInt(rng,a,b){return a+Math.floor(rng()*(b-a+1))}
+function rngShuffle(rng,arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));const t=a[i];a[i]=a[j];a[j]=t}return a}
+/* one stream per purpose: encounters / shop stock / secrets never steal each other's dice */
+function runRng(stream,salt){return mulberry32((((G.runSeed||1)*2654435761)^((salt||0)*9176+stream*7919))|0)}
+
+/* ---------- dynamic encounters ----------
+   Authored levels keep a SIGNATURE core; depth-gated archetype
+   squads reinforce it. Compositions are hand-designed — the seed
+   only picks which designed squads show up. */
+const ENC_ROLES = {
+  brawler:  { kinds: ["chaser", "brute", "elite", "berserker"] },
+  ranged:   { kinds: ["shooter", "freezer", "sniper", "acid", "drone", "trapper"] },
+  swarm:    { kinds: ["swarm", "imp"] },
+  assassin: { kinds: ["phantom", "assassin", "blink_assassin", "hunter"] },
+  control:  { kinds: ["charger", "shielder", "burrower", "guard", "mimic_knight", "plague_crawler", "chain_beast", "executioner"] },
+  support:  { kinds: ["summoner", "healer", "commander", "rift_mage", "gazer", "siege_drone", "splitter", "tentacle"] },
+};
+/* when each foe enters the rotating pool */
+const ENC_UNLOCK = {
+  chaser: 1, shooter: 1, bomber: 1, brute: 1, swarm: 1, imp: 1,
+  charger: 2, guard: 2, freezer: 3, phantom: 3, shielder: 3, splitter: 3, elite: 3,
+  blink_assassin: 4, healer: 4, burrower: 4, sniper: 4,
+  mimic_knight: 5, siege_drone: 5, acid: 5, drone: 5, assassin: 5, trapper: 5,
+  plague_crawler: 6, gazer: 7, berserker: 7, hunter: 7, commander: 7, tentacle: 7,
+  rift_mage: 8, executioner: 8, chain_beast: 8,
+};
+/* hand-designed squads — early ones read at a glance, late ones stack archetypes */
+const ENC_ARCHETYPES = [
+  { id: "pack",     name: "HUNTING PACK",    minLv: 3,  roles: { brawler: 2 } },
+  { id: "skirmish", name: "SKIRMISH LINE",   minLv: 3,  roles: { brawler: 1, ranged: 1 } },
+  { id: "teeth",    name: "TEETH",           minLv: 3,  roles: { swarm: 1, brawler: 1 } },
+  { id: "ambush",   name: "AMBUSH",          minLv: 4,  roles: { assassin: 1, brawler: 1 } },
+  { id: "phalanx",  name: "PHALANX",         minLv: 5,  roles: { control: 2, ranged: 1 } },
+  { id: "coven",    name: "COVEN",           minLv: 5,  roles: { support: 1, ranged: 1, swarm: 1 } },
+  { id: "blitz",    name: "BLITZ",           minLv: 6,  roles: { assassin: 2, swarm: 1 } },
+  { id: "warband",  name: "WARBAND",         minLv: 7,  roles: { brawler: 2, control: 1, support: 1 } },
+  { id: "circle",   name: "NIGHTMARE CIRCLE",minLv: 9,  roles: { assassin: 1, control: 1, support: 1, ranged: 1 } },
+  { id: "legion",   name: "LEGION",          minLv: 10, roles: { brawler: 2, swarm: 2, control: 1, support: 1 } },
+];
+
+/* ---------- mini-bosses — each one punishes a strategy ---------- */
+const MINI_BOSSES = [
+  { id: "warden", name: "WARDEN OF BOLTS", minLv: 4, counter: "shoots down projectiles — bring a blade",
+    def: { kind: "mb_warden", r: 17, speed: 95, color: "#5ab8ff", dmg: [8, 12], hp: 150 } },
+  { id: "paragon", name: "BLADE PARAGON", minLv: 4, counter: "parries melee — keep your distance",
+    def: { kind: "mb_paragon", r: 16, speed: 120, color: "#e8d17a", dmg: [9, 14], hp: 160 } },
+  { id: "glutton", name: "THE GLUTTON", minLv: 6, counter: "devours small foes — don't feed the pack",
+    def: { kind: "mb_glutton", r: 22, speed: 55, color: "#b83a3a", dmg: [11, 16], hp: 220 } },
+  { id: "nullsinger", name: "NULLSINGER", minLv: 8, counter: "phases between strikes — burst your damage",
+    def: { kind: "mb_nullsinger", r: 15, speed: 75, color: "#a78bfa", dmg: [7, 11], hp: 170 } },
+];
+
+/* rare treasure that bolts at the first sign of trouble */
+const GILDED_MIMIC = { kind: "gilded_mimic", name: "GILDED MIMIC", r: 13, speed: 165, color: "#ffd166", dmg: [2, 4], hp: 36 };
+
+/* ---------- run modifiers: risk for reward, optional, max 2 ---------- */
+const MODIFIERS = [
+  { id: "bloodmoon", name: "BLOOD MOON", icon: "🌕", desc: "+50% foes · +50% gold", unlock: () => true, hint: "" },
+  { id: "swarmmod",  name: "SWARM",      icon: "🐝", desc: "+80% foes · -40% foe HP", unlock: () => true, hint: "" },
+  { id: "frenzy",    name: "FRENZY",     icon: "⚡", desc: "foes attack 35% faster · +40% gold", unlock: () => (STATS.wins || 0) >= 1, hint: "win a run" },
+  { id: "glass",     name: "GLASS WORLD",icon: "💠", desc: "-60% max HP · +60% damage", unlock: () => (STATS.deepest || 1) >= 8, hint: "reach depth 8" },
+  { id: "dark",      name: "DARK RUN",   icon: "🌑", desc: "blacked-out arena · secrets & elites ×2", unlock: () => (STATS.secretsFound || 0) >= 3, hint: "find 3 secrets" },
+];
+
+/* ---------- weapon synergies: a few strong pairs, not a matrix ----------
+   test() gets the owned-weapon set; hidden ones are never listed up front */
+const SYNERGIES = [
+  { id: "collapse", name: "COLLAPSE", pair: "GRAVITY ORB + EMBER STAFF",
+    desc: "explosions deal +50% damage to foes caught in wells",
+    test: o => o.has("gravity") && o.has("staff") },
+  { id: "combustion", name: "COMBUSTION", pair: "FLAME BOW + bolt weapon",
+    desc: "bolt hits detonate burning foes in a burst",
+    test: o => o.has("bow") && (o.has("crossbow") || o.has("ricochet") || o.has("void") || o.has("lspear") || o.has("chakram")) },
+  { id: "sanguine", name: "SANGUINE EDGE", pair: "TWIN BLADES + LEECH BLADE",
+    desc: "twin hits stack BLEED · leech drinks blood for +6% healing",
+    test: o => o.has("twin") && o.has("leech") },
+  { id: "tempest", name: "TEMPEST", pair: "LIGHTNING SPEAR + CHAIN LIGHTNING",
+    desc: "spear bolts arc to an extra foe",
+    test: o => o.has("lspear") && o.has("chain") },
+  { id: "welldrink", name: "WELLS DRINK", pair: "???",
+    desc: "something feeds on kills made inside wells",
+    test: o => o.has("gravity") && o.has("leech"), hidden: true },
+];
+
+/* ---------- optional trial stones ---------- */
+const TRIALS = [
+  { id: "horde", name: "TRIAL OF THE HORDE", desc: "Survive three waves", minLv: 3 },
+  { id: "time",  name: "TRIAL OF THE HOURGLASS", desc: "Slay 8 foes before the sand runs out", minLv: 3 },
+  { id: "swarmtrial", name: "TRIAL OF THE SWARM", desc: "Cut down 20 motes", minLv: 4 },
+  { id: "nodmg", name: "TRIAL OF THE UNTOUCHED", desc: "Clear 8 foes without being hit", minLv: 4 },
+  { id: "glass", name: "TRIAL OF THE GLASS CANNON", desc: "10 HP, triple damage — clear 8 foes", minLv: 5 },
+];
+
+/* the secret weapon: never stocked, only found */
+const SECRET_WEAPONS = {
+  echo: { name: "ECHO BLADE", icon: "👻", type: "melee", cd: 0.45, cost: 0, unlock: 99, secret: true, desc: "Every swing releases a spectral slash" },
+};
+
+/* ---------- shop stock rules: rolled per run, per visit ---------- */
+const SHOP_STOCK_RULES = { potionCore: ["potion", "heal"], potionPool: ["power", "swift", "bombs", "turret", "trap"], potionPicks: 3,
+  healthPool: ["maxhp", "lifestone"], healthPicks: 2, armourPool: ["def", "aegis", "thorns", "artifact"], armourPicks: 3,
+  rangedPicks: 4, weaponPicks: 3, cursedPicks: 2, saleOff: 0.35 };
 
 /* idea 55: item set bonuses — owning matching items grants a bonus */
 const ITEM_SETS = [
@@ -576,7 +721,7 @@ const DEFAULT_SETTINGS = {
     up: "w", down: "s", left: "a", right: "d",
     attack: " ", secondary: "r", dash: "shift", potion: "e", bomb: "f",
     turret: "g", trap: "t",
-    weapon: "q", pause: "p", mute: "m",
+    weapon: "q", primary: "c", pause: "p", mute: "m",
   },
 };
 const SETTINGS = loadSettings();
@@ -607,4 +752,8 @@ const ELITE_MODS = [                                    // idea 30: elite rolls
   { name: "DEATHBURST", desc: "Erupts on death", apply: () => {} },
   { name: "WARDING", desc: "Raises a guard periodically", apply: () => {} },
   { name: "AUREATE", desc: "Gilded — spills riches", apply: d => { d.hp = Math.round(d.hp * 1.2); } },
+  /* replayability pass: rare BEHAVIOR elites — the mod changes how the foe fights */
+  { name: "VENOMOUS", desc: "Its bite chills the blood", apply: () => {} },
+  { name: "VAMPIRIC", desc: "Feeds on the wounds it deals", apply: d => { d.hp = Math.round(d.hp * 1.15); } },
+  { name: "PHASING", desc: "Slips between worlds", apply: () => {} },
 ];

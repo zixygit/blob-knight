@@ -38,6 +38,8 @@ const G = {
   aoeZones: [],                               // idea 34: ground AOE patterns
   difficulty: "normal",                       // idea 59
   runSeed: 1, daily: false, ngPlus: false,    // ideas 61/60
+  modifiers: [], mod: {},                     // replayability: optional run modifiers
+  syn: [], weaponVoucher: 0,                  // replayability: discovered synergies / trial rewards
   playtime: 0,                                // idea 62
   level: 1, door: null, loot: [], bossSpawned: false, minionsLeft: 0, loreNotes: [],
 };
@@ -75,9 +77,10 @@ const game = {
   orbits: [],        // idea 50
   time: 0,
   shake: 0,
-  weapon: "sword",        // primary hand — the sword is always equipped
+  weapon: "sword",        // primary hand — melee weapons (sword by default)
   secondary: null,        // secondary hand — ranged weapons (crossbow/staff/...)
   weapons: ["sword"],     // owned weapons
+  gravityWells: [],       // gravity orb: brief pull zones
 };
 
 /* ---------- input ---------- */
@@ -97,6 +100,7 @@ addEventListener("keydown", e => {
   if (k === km.secondary && !e.repeat) secondaryAttack(game);
   if (k === km.potion && !e.repeat) drinkPotion();
   if (k === km.weapon && !e.repeat) cycleWeapon();
+  if (k === km.primary && !e.repeat) cyclePrimary();
   if (k >= "1" && k <= "4" && !e.repeat) selectWeapon(Number(k));
   if (k === km.dash && !e.repeat) tryDash();
   if ((k === km.pause || k === "escape") && !e.repeat) togglePause();
@@ -132,6 +136,10 @@ addEventListener("contextmenu", e => {
 
 /* ---------- level setup ---------- */
 /* chapter two: shared minion spawner — used by level setup AND wave reinforcements */
+function eliteChance() {
+  const dark = G.mod && G.mod.eliteMult ? G.mod.eliteMult : 1;
+  return Math.min(0.30, (0.08 + G.level * 0.006 + (G.ngPlus ? 0.06 : 0)) * dark);
+}
 function spawnMinionList(list) {
   for (const m of list) {
     const base = Object.assign({}, ENEMY_TYPES[m.type], m);
@@ -142,8 +150,8 @@ function spawnMinionList(list) {
         y = rand(60, CFG.H - 60);
       } while (dist({ x, y }, game.player) < 100);
       const def = Object.assign({}, base);
-      /* idea 30: elite rolls — any enemy can spawn elite with a modifier + guaranteed loot.
-         chapter two: level defs may force a specific elite (named mini-boss hunts). */
+      /* idea 30: elite rolls — rare behavior-tinted champions with guaranteed loot.
+         Level defs may still force a specific elite (named mini-boss hunts). */
       const forced = m.elite && ELITE_MODS.find(mo => mo.name === m.elite);
       if (forced) {
         forced.apply(def);
@@ -151,18 +159,22 @@ function spawnMinionList(list) {
         def.hp = Math.round(def.hp * 1.5);
         def.r += 3;
         def.name = (m.name || "FOE") + " " + forced.name;
-      } else if (m.type !== "guard" && Math.random() < 0.12) {
+      } else if (m.type !== "guard" && m.type !== "swarm" && Math.random() < eliteChance()) {
         const mod = ELITE_MODS[rand(0, ELITE_MODS.length - 1)];
         mod.apply(def);
         def.eliteMod = mod.name;
         def.hp = Math.round(def.hp * 1.5);
         def.r += 3;
-        def.name = (m.name || "FOE") + " " + mod.name;
+        def.name = (m.name || def.name || "FOE") + " " + mod.name;
+        game.flash(`✦ A champion emerges: ${def.name}`, "#ffb45e");   // rare elites announce themselves
       }
       /* idea 59/60: difficulty + New Game+ scaling */
       const diff = DIFFICULTIES[G.difficulty] || DIFFICULTIES.normal;
       if (diff.mult > 1) def.hp = Math.round(def.hp * (1 + (diff.mult - 1) * 0.5));
       if (G.ngPlus) { def.hp = Math.round(def.hp * 1.4); def.speed = Math.round(def.speed * 1.1); }
+      /* run modifiers: SWARM thins their ranks, PARADOX IDOL quickens their feet */
+      if (G.mod && G.mod.foeHpMult) def.hp = Math.max(1, Math.round(def.hp * G.mod.foeHpMult));
+      if (G.foeSpeedMult) def.speed = Math.round(def.speed * G.foeSpeedMult);
       const e = new Enemy(def, x, y);
       if (m.proj) e.proj = m.proj;
       game.enemies.push(e);
@@ -172,9 +184,277 @@ function spawnMinionList(list) {
   }
 }
 
+/* ---------- dynamic encounters ----------
+   Depth 1-2 stay fully authored (readable). After that each level keeps a
+   signature foe from its authored list plus 1-3 hand-designed archetype
+   squads rolled from the run seed — the seed picks squads, never invents them. */
+function availKinds(level, role) {
+  return ENC_ROLES[role].kinds.filter(k => (ENC_UNLOCK[k] || 99) <= level);
+}
+function squadEntry(rng, level, role) {
+  const pool = availKinds(level, role);
+  if (!pool.length) return null;
+  const kind = rngPick(rng, pool);
+  const t = ENEMY_TYPES[kind];
+  const count = kind === "swarm" || kind === "imp" ? rngInt(rng, 2, 3) : rngInt(rng, 1, 2);
+  return { name: t.name, type: kind, count };
+}
+function buildEncounter(n) {
+  const rng = runRng(1, n);
+  const L = LEVELS[n];
+  const out = { waves: null, list: null, miniboss: null };
+  /* count scaling: modifiers + NG+ thicken every roster */
+  const countMult = (G.mod && G.mod.countMult) || 1;
+  const scale = e => Object.assign({}, e, { count: Math.max(1, Math.round((e.count || 1) * countMult)) });
+
+  if (L.waves) {
+    /* authored wave levels (12-16): keep the designed spine, roll one extra squad into later waves */
+    out.waves = L.waves.map((w, wi) => {
+      const list = w.map(scale);
+      if (n >= 3 && wi >= 1) {
+        const arch = rngPick(rng, ENC_ARCHETYPES.filter(a => a.minLv <= n));
+        for (const [role, cnt] of Object.entries(arch.roles)) {
+          for (let i = 0; i < cnt; i++) { const en = squadEntry(rng, n, role); if (en) list.push(en); }
+        }
+      }
+      return list;
+    });
+    out.list = out.waves[0];
+  } else if (n <= 2) {
+    out.list = (L.minions || []).map(scale);
+  } else {
+    /* the authored roster keeps the level's identity (and its lesson)… */
+    const list = (L.minions || []).map(scale);
+    /* …and designed squads bring the variety on top */
+    const squads = 1 + Math.floor((n - 3) / 4) + (rng() < 0.4 ? 1 : 0) + (G.ngPlus ? 1 : 0);
+    const usable = ENC_ARCHETYPES.filter(a => a.minLv <= n);
+    const picked = rngShuffle(rng, usable).slice(0, squads);
+    let total = list.reduce((s, e) => s + e.count, 0);
+    for (const arch of picked) {
+      for (const [role, cnt] of Object.entries(arch.roles)) {
+        for (let i = 0; i < cnt; i++) {
+          const en = squadEntry(rng, n, role);
+          if (en && total < 18) { list.push(en); total += en.count; }
+        }
+      }
+    }
+    out.list = list;
+    /* roaming mini-boss: rare, depth-gated, strategy-countering */
+    if (n >= 4 && rng() < 0.12 + (G.ngPlus ? 0.08 : 0) + (n >= 8 ? 0.05 : 0)) {
+      const pool = MINI_BOSSES.filter(mb => mb.minLv <= n);
+      if (pool.length) out.miniboss = rngPick(rng, pool);
+    }
+  }
+  return out;
+}
+
+function spawnMiniboss(mb) {
+  const def = Object.assign({}, mb.def, {
+    name: mb.name,
+    hp: Math.round(mb.def.hp * (1 + Math.max(0, G.level - mb.minLv) * 0.08)),
+    isBoss: false,   // a mid-level threat, not a throne-holder — the level keeps flowing
+  });
+  const e = new Enemy(def, rand(CFG.MARGIN + 60, CFG.W - CFG.MARGIN - 60), rand(CFG.MARGIN + 60, CFG.H - CFG.MARGIN - 60));
+  e.miniBossId = mb.id;
+  e.isMiniBoss = true;
+  game.enemies.push(e);
+  game.G.minionsLeft++;
+  seeEnemy(e.kind);
+  game.flash(`⚠ ${mb.name} prowls — ${mb.counter}`, "#ff7847");
+  game.shake = Math.max(game.shake, 0.15);
+}
+
+/* ---------- secret rooms: a crack in the wall, sometimes ---------- */
+function placeSecrets(n) {
+  game.secrets = [];
+  const rng = runRng(2, n);
+  const chance = 0.32 * ((G.mod && G.mod.secretMult) || 1);
+  if (n < 2 || rng() > chance) return;
+  const side = rngInt(rng, 0, 3);
+  const along = () => rand(90, (side < 2 ? CFG.W : CFG.H) - 90);
+  const pos = side === 0 ? { x: along(), y: 20 } : side === 1 ? { x: along(), y: CFG.H - 20 }
+    : side === 2 ? { x: 20, y: along() } : { x: CFG.W - 20, y: along() };
+  game.secrets.push({ x: pos.x, y: pos.y, found: false, seed: rngInt(rng, 1, 1e6) });
+}
+function openSecret(s) {
+  if (s.found) return;
+  s.found = true;
+  STATS.secretsFound = (STATS.secretsFound || 0) + 1;
+  saveStats();
+  SFX.teleport();
+  game.shake = Math.max(game.shake, 0.2);
+  game.effects.push({ type: "ring", x: s.x, y: s.y, r: 60, t: 0.6, color: "#ffd166" });
+  const rng = mulberry32(s.seed);
+  const roll = rng();
+  const gx = clamp(s.x + (s.x < CFG.W / 2 ? 60 : -60), 60, CFG.W - 60);
+  const gy = clamp(s.y + (s.y < CFG.H / 2 ? 60 : -60), 60, CFG.H - 60);
+  if (roll < 0.28) {
+    flash("SECRET VAULT — gold spills out!", "#ffd166");
+    for (let i = 0; i < rngInt(rng, 3, 5); i++) game.G.loot.push(new Pickup("gold", gx + rand(-30, 30), gy + rand(-24, 24), rand(35, 70)));
+  } else if (roll < 0.50) {
+    flash("SECRET CACHE — gear hoard!", "#8fd4ff");
+    game.G.loot.push(new Pickup("rune", gx, gy));
+    game.G.loot.push(new Pickup("herb", gx + 18, gy + 8));
+    game.G.loot.push(new Pickup("charm", gx - 18, gy - 6));
+  } else if (roll < 0.64) {
+    const owned = G.cursedOwned || [];
+    const pool = CURSED_ITEMS.filter(c => !owned.includes(c.id) && (!c.ngPlusOnly || G.ngPlus));
+    if (pool.length) {
+      const c = rngPick(rng, pool);
+      c.apply();
+      G.cursedOwned = owned.concat(c.id);
+      flash(`SECRET PACT — ${c.name}: +${c.benefit} / -${c.drawback} (free)`, "#c084fc");
+    } else {
+      game.G.loot.push(new Pickup("gold", gx, gy, 80));
+    }
+  } else if (roll < 0.80) {
+    flash("SECRET AMBUSH — they were waiting!", "#ff7847");
+    const kinds = availKinds(G.level, "brawler");
+    for (let i = 0; i < 3; i++) {
+      const t = ENEMY_TYPES[rngPick(rng, kinds)];
+      const e = new Enemy(Object.assign({}, t, { name: "AMBUSHER " + t.name, hp: Math.round(t.hp * 1.2) }), gx + rand(-40, 40), gy + rand(-40, 40));
+      if (i === 0) { e.eliteMod = "AUREATE"; e.hp = Math.round(e.hp * 1.5); e.r += 3; }
+      game.enemies.push(e);
+      game.G.minionsLeft++;
+      seeEnemy(e.kind);
+    }
+  } else if (roll < 0.90 && G.level >= 4) {
+    const pool = MINI_BOSSES.filter(mb => mb.minLv <= G.level);
+    if (pool.length) { flash("SECRET DOOR — something waits beyond", "#c2553d"); spawnMiniboss(rngPick(rng, pool)); }
+    else game.G.loot.push(new Pickup("gold", gx, gy, 60));
+  } else {
+    if (!game.weapons.includes("echo")) {
+      flash("✦ A blade hums in the dark…", "#c0a8f0");
+      game.G.loot.push(new Pickup("secretweapon", gx, gy, "echo"));
+    } else {
+      flash("SECRET VAULT — gold spills out!", "#ffd166");
+      for (let i = 0; i < 3; i++) game.G.loot.push(new Pickup("gold", gx + rand(-24, 24), gy + rand(-20, 20), 50));
+    }
+  }
+}
+
+/* ---------- trial stones: optional risk for guaranteed reward ---------- */
+function placeTrialStone(n) {
+  game.trialStone = null;
+  G.trial = null;
+  if (n < 3) return;
+  const rng = runRng(3, n);
+  if (rng() > 0.55) return;
+  const pool = TRIALS.filter(t => t.minLv <= n);
+  game.trialStone = { x: rand(120, CFG.W - 120), y: rand(120, CFG.H - 120), trial: rngPick(rng, pool), offered: false };
+}
+function offerTrial() {
+  const stone = game.trialStone;
+  if (!stone || stone.used) return;
+  stone.used = true;
+  const t = stone.trial;
+  G.phase = "shop";   // freeze the arena behind the offer
+  showOverlay(`⚔ ${t.name}`, `The stone hums.<br><b>${t.desc}</b><br><br><span class="merchant">Reward: gold + a weapon voucher (next weapon, free)</span>`, null, null, [
+    { label: "⚔ ACCEPT THE TRIAL", fn: () => startTrial(t), primary: true },
+    { label: "🚶 WALK AWAY", fn: resumePlay },
+  ]);
+}
+function startTrial(t) {
+  hideOverlay();
+  G.phase = "play";
+  setTouchUI(true);
+  G.trial = { type: t.id, name: t.name, phase: "active", t: 0, kills: 0, needKills: 0, spawned: 0, wave: 0, nextSpawn: 0 };
+  if (t.id === "time") { G.trial.t = 45; G.trial.needKills = 8; G.trial.nextSpawn = 0; }
+  if (t.id === "nodmg") { G.trial.needKills = 8; G.trial.nextSpawn = 0; }
+  if (t.id === "glass") {
+    G.trial.needKills = 8; G.trial.nextSpawn = 0;
+    G.trial.savedHp = G.hp; G.trial.savedMax = G.maxHp; G.trial.savedAtk = G.atkMult || 1;
+    G.maxHp = 10; G.hp = 10; G.atkMult = (G.atkMult || 1) * 3;
+    flash("GLASS CANNON — 10 HP, triple damage!", "#8fd4ff");
+  }
+  if (t.id === "swarmtrial") { G.trial.needKills = 20; G.trial.nextSpawn = 0; }
+  if (t.id === "horde") { G.trial.nextSpawn = 0; }
+  renderHUD();
+  game.flash(`⚔ ${t.name} — BEGIN!`, "#ffd166");
+}
+function trialFoe(def, near) {
+  const p = game.player;
+  let x, y;
+  do { x = rand(80, CFG.W - 80); y = rand(80, CFG.H - 80); } while (dist({ x, y }, p) < 140);
+  const e = new Enemy(def, x, y);
+  e.summoned = true;      // trial foes never count toward the level's door
+  e.trialFoe = true;
+  game.enemies.push(e);
+  seeEnemy(e.kind);
+  return e;
+}
+function trialTick(combatDt) {
+  const tr = G.trial;
+  if (!tr || tr.phase !== "active") return;
+  const lv = G.level;
+  const chaserDef = () => Object.assign({}, ENEMY_TYPES.chaser, { name: "TRIAL FOE" });
+  if (tr.type === "horde") {
+    tr.nextSpawn -= combatDt;
+    const alive = game.enemies.filter(e => e.trialFoe && !e.dead).length;
+    if (alive === 0 && tr.nextSpawn <= 0) {
+      tr.wave++;
+      if (tr.wave > 3) return winTrial();
+      game.flash(`⚔ WAVE ${tr.wave}/3!`, "#ff7847");
+      const n = 3 + Math.floor(lv / 2);
+      for (let i = 0; i < n; i++) trialFoe(chaserDef());
+      if (tr.wave === 3) for (let i = 0; i < 2; i++) trialFoe(Object.assign({}, ENEMY_TYPES.brute, { name: "TRIAL BRUTE" }));
+      tr.nextSpawn = 6;   // pace even if the player stalls
+    }
+  } else if (tr.type === "time" || tr.type === "nodmg" || tr.type === "glass") {
+    if (tr.type === "time") {
+      tr.t -= combatDt;
+      if (tr.t <= 0) return failTrial("The sand ran out…");
+    }
+    tr.nextSpawn -= combatDt;
+    const alive = game.enemies.filter(e => e.trialFoe && !e.dead).length;
+    if (alive < 5 && tr.spawned < tr.needKills + 3 && tr.nextSpawn <= 0) {
+      tr.nextSpawn = 1.6;
+      tr.spawned++;
+      trialFoe(chaserDef());
+    }
+    if (tr.kills >= tr.needKills) return winTrial();
+  } else if (tr.type === "swarmtrial") {
+    tr.nextSpawn -= combatDt;
+    if (tr.spawned < 20 && tr.nextSpawn <= 0) {
+      tr.nextSpawn = 0.35;
+      tr.spawned++;
+      trialFoe(Object.assign({}, ENEMY_TYPES.swarm, { name: "TRIAL MOTE" }));
+    }
+    if (tr.kills >= 20) return winTrial();
+  }
+}
+function winTrial() {
+  const tr = G.trial;
+  const gold = 60 + G.level * 15;
+  G.gold += gold;
+  G.weaponVoucher = (G.weaponVoucher || 0) + 1;
+  STATS.trialsWon = (STATS.trialsWon || 0) + 1;
+  saveStats();
+  checkAchievements();
+  flash(`⚔ TRIAL COMPLETE! +${gold}g + WEAPON VOUCHER`, "#6bff9a");
+  SFX.levelup();
+  endTrial();
+  renderHUD();
+}
+function failTrial(why) {
+  flash(`⚔ TRIAL FAILED — ${why}`, "#9a90b8");
+  G.gold += 15;   // the stone keeps a little pity coin
+  endTrial();
+}
+function endTrial() {
+  const tr = G.trial;
+  if (tr && tr.type === "glass") { G.maxHp = tr.savedMax; G.hp = Math.min(tr.savedHp, tr.savedMax); G.atkMult = tr.savedAtk; }
+  G.trial = null;
+  for (const e of [...game.enemies]) if (e.trialFoe && !e.dead) killEnemy(e, true);
+  renderHUD();
+}
+
+
 function setupLevel(n) {
   G.level = n;
   const L = LEVELS[n];
+  STATS.deepest = Math.max(STATS.deepest || 1, n);   // replayability: unlock meter
+  saveStats();
   game.player = new Player(n === 3 ? CFG.W / 2 : CFG.MARGIN + 30, CFG.H / 2);
   game.player.dropT = 0.9;          // idea 9: drop-in animation
   game.player.dropY = -160;         // start above the arena
@@ -186,6 +466,7 @@ game.arcs = [];
   game.orbits = [];
   game.deployables = [];
   game.burnZones = [];
+  game.gravityWells = [];
   game.G.loot = [];
   game.G.door = { x: CFG.W - 36, y: CFG.H / 2, r: 14, open: false };
 game.G.bossSpawned = false;
@@ -248,10 +529,16 @@ game.G.bossSpawned = false;
     return;
   }
 
-  /* chapter two: multi-wave encounters — wave 1 now, reinforcements as each falls */
-  G.levelWaves = L.waves || null;
+  /* dynamic encounters — authored signature + seed-rolled archetype squads.
+     Wave levels keep their spine; later waves gain a rolled squad. */
+  const enc = buildEncounter(n);
+  G.levelWaves = enc.waves || null;
   G.waveIdx = 0;
-  spawnMinionList(L.waves ? L.waves[0] : (L.minions || []));
+  spawnMinionList(enc.list);
+  if (enc.miniboss) spawnMiniboss(enc.miniboss);
+  placeSecrets(n);
+  placeTrialStone(n);
+  game.gildedMimicSpawned = false;
   flash(`LEVEL ${n}/${MAX_LEVEL}: ${L.name} — slay all foes`, "#9a90b8");
   renderHUD();
   saveGame();
@@ -281,8 +568,24 @@ const DESPERATION_TAUNTS = [
   "Even the void weeps for you…",
 ];
 
+/* New Game+: bosses return with EXTRA KIT, not just bigger numbers —
+   missing patterns get injected, volleys widen, and each lord keeps a
+   hidden SECOND CROWN: once, near death, it mends and guards itself. */
+function enrichBossNG(b) {
+  if (!G.ngPlus) return b;
+  const nb = Object.assign({}, b);
+  nb.volley = b.volley ? Object.assign({}, b.volley, { count: b.volley.count + 1 }) : null;
+  if (!nb.radial) nb.radial = { count: 12, speed: 230, dmg: [7, 10], color: "#ff8b3d" };
+  if (!nb.spiral) nb.spiral = { count: 3, step: 0.22, twist: 0.6, speed: 210, dmg: [7, 10], color: "#ffb45e" };
+  if (!nb.laser) nb.laser = { speed: 430, dmg: [10, 14], color: "#ff5a2a", sweep: 2.4, cd: 7 };
+  if (!nb.despair) nb.despair = { count: 22, speed: 300, dmg: [10, 14], color: "#ff2a6a" };
+  nb.volleyCd = (nb.volleyCd || 2.4) * 0.9;
+  nb.secondCrown = true;
+  return nb;
+}
+
 function spawnBoss() {
-  const b = LEVELS[G.level].boss;
+  const b = enrichBossNG(LEVELS[G.level].boss);
   const boss = new Enemy(b, CFG.W - 120, CFG.H / 2);
   game.enemies.push(boss);
   game.G.bossSpawned = true;
@@ -312,16 +615,17 @@ function playerDamage() {
   const crit = Math.random() < (0.1 + G.crit);
   const w = game.lastWeapon || game.weapon || "sword";
   const wl = G.wLevels[w] || 1;                          // idea 13: per-weapon scaling
-  const base = Math.round(G.atk * (1 + (wl - 1) * 0.5));
+  const base = Math.round(G.atk * (1 + (wl - 1) * 0.5) * (G.atkMult || 1) * (G.tempAtkT > 0 ? 1.4 : 1));
   /* idea 7: combo timing — chained hits ramp damage up to x12 */
   const comb = Math.min(G.combo || 0, 12);
-  const dmg = Math.round(rand(base, base + 5) * (crit ? 2 : 1) * (1 + comb * 0.04));
+  const dmg = Math.round(rand(base, base + 5) * (crit ? 2 + (G.critDmg || 0) : 1) * (1 + comb * 0.04));
   return { d: dmg, crit };
 }
 
 /* idea 15: charged heavy attack */
 function tryHeavy() {
   if (G.phase !== "play" || !game.player || game.player.attackCd > 0) return;
+  if ((G.attackLockT || 0) > 0) { flash("ATTACK DISABLED — GLASS EDGE", "#ff8b3d"); return; }
   if (G.chargeT < 0.6) return;   // not charged enough
   G.phase = "charging";          // no-op guard; handled inline below
   G.phase = "play";
@@ -399,6 +703,8 @@ function hurtEnemy(e, dmg, kx, ky, opts = {}) {
     return;
   }
   e.hp -= dmg;
+  /* cursed PYRE HEART: every wound you deal catches fire */
+  if (G.pyreHeart && !e.isNPC) { e.burnT = Math.max(e.burnT || 0, 1.5); e.burnDps = 3; }
   /* idea 51: elemental weakness — +30% damage vs weak enemies */
   const weakness = ELEMENT_WEAKNESS[G.level];
   if (weakness && opts.element === weakness) {
@@ -467,6 +773,10 @@ function damagePlayer(d, sx, sy, fx) {
   G.hp -= mitigated;
   G.dmgTaken += mitigated;   // idea 38: boss grade tracking
   G.invulnT = 0.6;           // idea 4: grace window after a real hit
+  /* TRIAL OF THE UNTOUCHED: one graze ends it */
+  if (G.trial && G.trial.phase === "active" && G.trial.type === "nodmg") failTrial("you were touched");
+  /* cursed GLASS EDGE: the wound numbs your hands — no attacks for a beat */
+  if (G.glassEdge) { G.attackLockT = 3; flash("GLASS EDGE — attacks disabled 3s!", "#ff8b3d"); }
   game.player.hurtT = 0.25;
   game.shake = Math.max(game.shake, 0.18);
   game.effects.push({ type: "hurt", x: game.player.x, y: game.player.y, t: 0.3 });
@@ -510,13 +820,21 @@ function explodePlayer(x, y, r, dmg) {
   game.effects.push({ type: "boom", x, y, t: 0.4 });
   game.shake = Math.max(game.shake, 0.15);
   SFX.boom();
+  const collapse = (G.syn || []).includes("collapse");   // synergy: wells focus the blast
   for (const e of [...game.enemies]) {
     if (dist({ x, y }, e) < r + e.r) {
-      const hit = playerDamage();
+      const hit = game.playerDamage();
+      const inWell = collapse && (game.gravityWells || []).some(w => dist(w, e) < w.r + e.r);
       const ang = Math.atan2(e.y - y, e.x - x);
-      hurtEnemy(e, Math.round((dmg ? rand(dmg[0], dmg[1]) : hit.d * 0.9 + 2)), Math.cos(ang) * 10, Math.sin(ang) * 10,
+      let d = Math.round((dmg ? rand(dmg[0], dmg[1]) : hit.d * 0.9 + 2));
+      if (inWell) { d = Math.round(d * 1.5); game.effects.push({ type: "hit", x: e.x, y: e.y - 16, t: 0.35, txt: "COLLAPSE!", color: "#a88cff" }); }
+      hurtEnemy(e, d, Math.cos(ang) * 10, Math.sin(ang) * 10,
         { knock: 0.3, crit: hit.crit, color: dmg ? "#ffb45e" : undefined });
     }
+  }
+  /* a bomb blast cracks open nearby secrets */
+  for (const s of game.secrets || []) {
+    if (!s.found && dist({ x, y }, s) < r + 30) openSecret(s);
   }
 }
 
@@ -540,6 +858,8 @@ function killEnemy(e, silent) {
   const idx = game.enemies.indexOf(e);
   if (idx >= 0) game.enemies.splice(idx, 1);
   G.kills++;
+  /* active trial: every trial foe felled counts toward the oath */
+  if (G.trial && G.trial.phase === "active" && e.trialFoe) G.trial.kills++;
   /* idea 7: combo timing — kills & sword hits chain within the window */
   if (G.comboT > 0) G.combo = Math.min(12, G.combo + 1);
   else G.combo = 1;
@@ -578,6 +898,25 @@ function killEnemy(e, silent) {
       game.G.loot.push(new Pickup("perk", e.x, e.y));
       game.G.loot.push(new Pickup("gold", e.x + 14, e.y + 6, rand(40, 80)));
       flash("GILDED FOE — riches spill!", "#ffd166");
+    }
+    /* rare elites always pay: a champion's hoard + a shot at a perk */
+    if (e.eliteMod) {
+      STATS.elitesSlain = (STATS.elitesSlain || 0) + 1;
+      if (e.eliteMod !== "AUREATE") {
+        game.G.loot.push(new Pickup("gold", e.x, e.y, rand(25, 60)));
+        if (Math.random() < 0.20) game.G.loot.push(new Pickup("perk", e.x + 12, e.y + 8));
+      }
+    }
+    /* mini-bosses bank a weapon voucher — the shop honours it */
+    if (e.isMiniBoss) {
+      STATS.minibossesSlain = (STATS.minibossesSlain || 0) + 1;
+      G.weaponVoucher = (G.weaponVoucher || 0) + 1;
+      game.G.loot.push(new Pickup("voucher", e.x, e.y));
+      flash(`${e.name} falls — WEAPON VOUCHER earned!`, "#ffd166");
+    }
+    if (e.kind === "gilded_mimic") {
+      for (let i = 0; i < 5; i++) game.G.loot.push(new Pickup("gold", e.x + rand(-20, 20), e.y + rand(-16, 16), rand(20, 45)));
+      flash("The mimic bursts into riches!", "#ffd166");
     }
     if (e.kind === "acid") {
       spawnHazardZone(e.x, e.y, { r: 40, life: 2.6, dps: 8, color: "#8fc04d" });
@@ -658,6 +997,23 @@ function pickup(l) {
     case "charm":  G.crit += 0.05; G.sword++; flash("CRIT CHARM! +5% crit", "#c084fc"); break;
     case "rune":   G.def += 1; G.armor++; flash("GUARD RUNE! DEF +1", "#8fd4ff"); break;
     case "lore":   addLoreNote(l.v); break;    // idea 85: collectible lore notes
+    case "voucher":
+      G.weaponVoucher = (G.weaponVoucher || 0) + 1;
+      flash("⚔ WEAPON VOUCHER — next weapon is free!", "#c084fc");
+      break;
+    case "secretweapon": {
+      const w = l.v || "echo";
+      if (SECRET_WEAPONS[w] && !game.weapons.includes(w)) {
+        game.weapons.push(w);
+        WEAPONS[w] = WEAPONS[w] || SECRET_WEAPONS[w];
+        equipWeapon(w);
+        flash(`✦ SECRET WEAPON: ${WEAPONS[w].icon} ${WEAPONS[w].name}!`, "#c0a8f0");
+        STATS.unlocked["secret_" + w] = true;
+        saveStats();
+        checkSynergies();
+      }
+      break;
+    }
     case "perk": {
       const p = PERKS[rand(0, PERKS.length - 1)];
       p.apply();
@@ -762,9 +1118,9 @@ function bossSpiral(boss, cfg, baseAng) {
 }
 
 /* ---------- weapons ---------- */
-/* the sword is the primary hand; 1-4 / Q pick the SECONDARY (ranged) weapon */
+/* the primary hand holds melee weapons (SPACE); Q/1-4 pick the SECONDARY (ranged) */
 function selectWeapon(n) {
-  const ordered = Object.keys(WEAPONS).filter(w => game.weapons.includes(w) && w !== "sword");
+  const ordered = Object.keys(WEAPONS).filter(w => game.weapons.includes(w) && WEAPONS[w].type !== "melee");
   if (ordered.length === 0) { flash("Only the sword — buy a ranged weapon at the shop", "#9a90b8"); return; }
   if (n >= 1 && n <= ordered.length) {
     game.secondary = ordered[n - 1];
@@ -774,10 +1130,19 @@ function selectWeapon(n) {
 }
 
 function cycleWeapon() {
-  const ordered = Object.keys(WEAPONS).filter(w => game.weapons.includes(w) && w !== "sword");
+  const ordered = Object.keys(WEAPONS).filter(w => game.weapons.includes(w) && WEAPONS[w].type !== "melee");
   if (ordered.length === 0) { flash("Only the sword — buy a ranged weapon at the shop", "#9a90b8"); return; }
   const i = ordered.indexOf(game.secondary);
   selectWeapon(((i + 1) % ordered.length) + 1);
+}
+
+/* gravity orb payload → pull zone (shared by projectile impact + expiry) */
+function spawnGravityWell(x, y, cfg) {
+  game.gravityWells = game.gravityWells || [];
+  game.gravityWells.push({ x: clamp(x, CFG.MARGIN, CFG.W - CFG.MARGIN), y: clamp(y, CFG.MARGIN, CFG.H - CFG.MARGIN), r: cfg.r, t: cfg.t, max: cfg.t, dps: cfg.dps });
+  if (game.gravityWells.length > 6) game.gravityWells.shift();
+  game.effects.push({ type: "boom", x, y, t: 0.3 });
+  SFX.teleport();
 }
 
 /* idea 53: deployable tools keyed off inventory (bought at the shop) */
@@ -829,6 +1194,12 @@ function update(dt) {
     game.player.lavaT = Math.max(0, (game.player.lavaT || 0) - dt);
   }
   G.slowT = Math.max(0, G.slowT - dt);
+  /* shop consumables + cursed drawbacks tick in real time */
+  G.tempAtkT = Math.max(0, (G.tempAtkT || 0) - dt);
+  G.tempSpdT = Math.max(0, (G.tempSpdT || 0) - dt);
+  G.attackLockT = Math.max(0, (G.attackLockT || 0) - dt);
+  G.voidBuffT = Math.max(0, (G.voidBuffT || 0) - dt);
+  if (G.voidStreakT > 0) { G.voidStreakT -= dt; if (G.voidStreakT <= 0) G.voidStreak = 0; }
   /* idea 14: stamina regen */
   if (G.stamina < STAMINA.max) G.stamina = Math.min(STAMINA.max, G.stamina + STAMINA.regen * dt);
   /* idea 15: charging heavy — hold the attack button, release to slam */
@@ -932,7 +1303,7 @@ function update(dt) {
     p.y = clamp(p.y + Math.sin(p.dashAng) * sp * combatDt, CFG.MARGIN, CFG.H - CFG.MARGIN);
   } else if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    const sp = CFG.PLAYER.speed * (G.slowT > 0 ? 0.55 : 1);
+    const sp = CFG.PLAYER.speed * (G.spdMult || 1) * (G.tempSpdT > 0 ? 1.3 : 1) * (G.slowT > 0 ? 0.55 : 1);
     p.x = clamp(p.x + (dx / len) * sp * combatDt, CFG.MARGIN, CFG.W - CFG.MARGIN);
     p.y = clamp(p.y + (dy / len) * sp * combatDt, CFG.MARGIN, CFG.H - CFG.MARGIN);
   }
@@ -994,6 +1365,14 @@ function update(dt) {
     const c = game.crates[i];
     if (c.hp <= 0) {
       dropLoot(c.x, c.y, false);
+      /* replayability: rarely, the crate itself bolts with the treasure */
+      if (!game.gildedMimicSpawned && Math.random() < 0.02) {
+        game.gildedMimicSpawned = true;
+        const m = new Enemy(Object.assign({}, GILDED_MIMIC), c.x, c.y);
+        game.enemies.push(m);
+        seeEnemy(m.kind);
+        flash("✦ The treasure has LEGS!", "#ffd166");
+      }
       game.effects.push({ type: "boom", x: c.x, y: c.y, t: 0.3 });
       game.crates.splice(i, 1);
     }
@@ -1088,6 +1467,39 @@ function update(dt) {
     if (z.t <= 0) game.burnZones.splice(i, 1);
   }
 
+  /* gravity orb: collapsed wells drag foes to the centre and grind them */
+  game.gravityWells = game.gravityWells || [];
+  for (let i = game.gravityWells.length - 1; i >= 0; i--) {
+    const w = game.gravityWells[i];
+    w.t -= combatDt;
+    for (const e of [...game.enemies]) {
+      if (e.isNPC || e.dead) continue;
+      const d = dist(w, e);
+      if (d < w.r + e.r && d > 3) {
+        const ang = Math.atan2(w.y - e.y, w.x - e.x);
+        const pull = (170 * (1 - d / (w.r + e.r)) + 55) * (e.isBoss ? 0.3 : 1);   // bosses barely budge
+        const step = Math.min(pull * combatDt, d - 3);   // converge onto the centre, never slingshot through it
+        e.x += Math.cos(ang) * step;
+        e.y += Math.sin(ang) * step;
+        e.hp -= w.dps * combatDt;
+        e.hurtT = Math.max(e.hurtT || 0, 0.06);
+        if (e.hp <= 0) {
+          /* hidden synergy WELLS DRINK: kills inside wells feed the wielder */
+          if ((G.syn || []).includes("welldrink") && G.hp < G.maxHp) {
+            G.hp = Math.min(G.maxHp, G.hp + 3);
+            game.effects.push({ type: "heal", x: game.player.x, y: game.player.y - 16, t: 0.4, txt: "+3", color: "#ff6b6b" });
+          }
+          killEnemy(e);
+        }
+      }
+    }
+    if (Math.random() < 0.5) {
+      const a = Math.random() * Math.PI * 2, rr = w.r * (0.4 + Math.random() * 0.6);
+      game.effects.push({ type: "spark", x: w.x + Math.cos(a) * rr, y: w.y + Math.sin(a) * rr, vx: -Math.cos(a) * 90, vy: -Math.sin(a) * 90, t: 0.2, color: "#a88cff" });
+    }
+    if (w.t <= 0) game.gravityWells.splice(i, 1);
+  }
+
   /* idea 49: sword parry window — negate contact damage */
   game.parryT = Math.max(0, (game.parryT || 0) - combatDt);
 
@@ -1096,6 +1508,15 @@ function update(dt) {
   for (let i = game.G.loot.length - 1; i >= 0; i--) {
     if (dist(game.G.loot[i], p) < 26) { pickup(game.G.loot[i]); game.G.loot.splice(i, 1); }
   }
+
+  /* replayability: secret wall cracks open on touch, trial stones offer their bargain */
+  for (const s of game.secrets || []) {
+    if (!s.found && dist(s, p) < 30) openSecret(s);
+  }
+  if (game.trialStone && !game.trialStone.used && !G.trial && dist(game.trialStone, p) < 30) offerTrial();
+
+  /* active trials tick with the fight */
+  trialTick(combatDt);
 
   /* door — level clear. Level 2 offers a path choice; every level offers an OPTIONAL shop.
      No screen-blocking reward popup: the player opts in or presses on.
@@ -1224,6 +1645,18 @@ function saveGame() {
       crit: G.crit, perks: G.perks, artifact: G.artifact, wLevels: G.wLevels,
       weapons: game.weapons, weapon: game.weapon, secondary: game.secondary,
       bombs: G.bombs, turrets: G.turrets, traps: G.traps,
+      /* cursed items + shop upgrades */
+      atkMult: G.atkMult || 1, critDmg: G.critDmg || 0, spdMult: G.spdMult || 1,
+      enemyDmgMult: G.enemyDmgMult || 1, dmgTakenMult: G.dmgTakenMult || 1,
+      goldMult: G.goldMult || 1, asMult: G.asMult || 1, knockMult: G.knockMult || 1,
+      glassEdge: !!G.glassEdge, cursedOwned: G.cursedOwned || [],
+      lifestones: G.lifestones || 0, thornMail: !!G.thornMail,
+      lifesteal: G.lifesteal || 0, thorns: G.thorns || 0,
+      shield: G.shield || 0, shieldMax: G.shieldMax || 0,
+      /* replayability: seed, chosen modifiers, synergies, vouchers */
+      runSeed: G.runSeed || 1, modifiers: G.modifiers || [],
+      syn: G.syn || [], weaponVoucher: G.weaponVoucher || 0,
+      foeSpeedMult: G.foeSpeedMult || 1, pyreHeart: !!G.pyreHeart,
     };
     /* idea 96: cloud save when Steam is present, else localStorage */
     if (!STEAM.save(JSON.stringify(save))) localStorage.setItem(SAVE_KEY, JSON.stringify(save));
@@ -1247,6 +1680,8 @@ function continueRun() {
   SFX.unlock();
   hideOverlay();
   setTouchUI(true);
+  G.keepSeed = true;   // a continued run replays its own world
+  shopStock = null; stockSalt = 0;
   setupLevel(G.level);
   G.phase = "play";
   renderHUD();
@@ -1262,15 +1697,20 @@ function showHelp() {
   const back = G.phase === "paused" ? openPauseMenu : resetGame;
   showOverlay("❓ HELP", `
     <b>KEYBOARD</b><br>
-    Move <span class="kbd">WASD</span> / arrows · Sword <span class="kbd">SPACE</span> (hold = heavy) · Ranged <span class="kbd">R</span>/right-click · Dash <span class="kbd">SHIFT</span> · Potion <span class="kbd">E</span> · Bomb <span class="kbd">F</span> · Turret <span class="kbd">G</span> · Trap <span class="kbd">T</span> · Cycle ranged <span class="kbd">Q</span>/<span class="kbd">1-4</span> · Pause <span class="kbd">P</span> · Sound <span class="kbd">M</span><br><br>
+    Move <span class="kbd">WASD</span> / arrows · Melee <span class="kbd">SPACE</span> (hold = heavy) · Cycle melee <span class="kbd">C</span> · Ranged <span class="kbd">R</span>/right-click · Dash <span class="kbd">SHIFT</span> · Potion <span class="kbd">E</span> · Bomb <span class="kbd">F</span> · Turret <span class="kbd">G</span> · Trap <span class="kbd">T</span> · Cycle ranged <span class="kbd">Q</span>/<span class="kbd">1-4</span> · Pause <span class="kbd">P</span> · Sound <span class="kbd">M</span><br><br>
     <b>TOUCH</b><br>
-    Drag the joystick to move. Buttons: sword, ranged, bomb, dash, potion, cycle, pause.<br><br>
+    Drag the joystick to move. Buttons: melee, ranged, bomb, dash, potion, cycle, pause.<br><br>
     <b>TIPS</b><br>
     • Hold SPACE to charge a HEAVY SLAM.<br>
     • A well-timed sword swing PARRYS contact damage.<br>
+    • Melee weapons swing on <span class="kbd">SPACE</span>; ranged weapons fire on <span class="kbd">R</span> — the merchant's stock changes every run.<br>
+    • Cursed items are powerful but always take something back. Read the red text.<br>
+    • Some weapon PAIRS wake a synergy — check ✦ SYNERGIES in the pause menu.<br>
+    • Cracks in the wall hide vaults, ambushes, and stranger things. Bombs open them too.<br>
+    • Trial stones offer risk for reward: clear one, earn a weapon voucher.<br>
+    • MODIFIERS at the menu stack risk onto a run — two at most.<br>
     • Certain lands fear fire, ice, or lightning — pick weapons to match.<br>
-    • Smash crates: they hide gold, loot, and lore scrolls.<br>
-    • Ranged weapons fire on <span class="kbd">R</span> — the sword stays at the ready.<br><br>
+    • Smash crates: they hide gold, loot, and lore scrolls.<br><br>
     <b>THE ${MAX_LEVEL} DEPTHS</b><br>
     Slay every foe to open the door, then spend gold at the merchant. Clear all ${MAX_LEVEL} depths.`,
     "⬅ BACK", back);
@@ -1374,58 +1814,285 @@ function startVoidThrone() {
   flash("🜂 VOID THRONE — the true ending awaits", "#c2553d");
 }
 
+/* ============================================================
+   SHOP — six clean categories, one readable card per item:
+   POTION | HEALTH | ARMOUR | RANGED WEAPON | WEAPON | CURSED ITEM
+   ============================================================ */
+const SHOP_TABS = [
+  { id: "potion", label: "🧪 POTION" },
+  { id: "health", label: "❤️ HEALTH" },
+  { id: "armour", label: "🛡️ ARMOUR" },
+  { id: "ranged", label: "🏹 RANGED WEAPON" },
+  { id: "weapon", label: "⚔️ WEAPON" },
+  { id: "cursed", label: "☠️ CURSED ITEM" },
+];
+let shopTab = "potion";
+let shopStock = null;   // rolled per run/visit — the merchant travels light
+
+/* Stock roll: seeded by run + depth, so daily runs stock identically.
+   Guarantees: a healing option, a ranged weapon, and the sword card
+   are ALWAYS present; everything else rotates. */
+function ensureShopStock() {
+  const key = `${G.runSeed || 1}:${G.level}:${G.ngPlus ? 1 : 0}:${stockSalt}`;
+  if (shopStock && shopStock.key === key) return shopStock;
+  const rng = runRng(5, G.level * 31 + (G.ngPlus ? 7 : 0) + stockSalt * 613);
+  const R = SHOP_STOCK_RULES;
+  const lv = G.level + 1;   // shop sits between levels
+  const availW = t => Object.keys(WEAPONS).filter(w => WEAPONS[w].type === t && !WEAPONS[w].secret && (WEAPONS[w].unlock || 1) <= lv);
+  const notOwned = arr => arr.filter(w => !game.weapons.includes(w));
+  const pickN = (pool, n) => rngShuffle(rng, pool).slice(0, Math.min(n, pool.length));
+
+  const potion = ["potion"].concat(pickN(R.potionPool, R.potionPicks));
+  const health = ["heal"].concat(pickN(R.healthPool, R.healthPicks));
+  const armour = pickN(R.armourPool, R.armourPicks);
+  const ranged = pickN(notOwned(availW("ranged")), Math.max(1, Math.min(R.rangedPicks, notOwned(availW("ranged")).length)));
+  const weapon = pickN(notOwned(availW("melee")), R.weaponPicks);
+  const cursedPool = CURSED_ITEMS.filter(c => (!c.ngPlusOnly || G.ngPlus) && !(G.cursedOwned || []).includes(c.id));
+  const cursed = pickN(cursedPool.map(c => c.id), R.cursedPicks);
+
+  shopStock = { key, potion, health, armour, ranged, weapon, cursed, sale: null };
+
+  /* one flashing SALE per visit — never on the always-stocked basics */
+  const salePool = [["potion", ...potion.slice(1)], ["health", ...health.slice(1)], ["armour", ...armour],
+    ["ranged", ...ranged], ["weapon", ...weapon], ["cursed", ...cursed]].flatMap(([tab, ...keys]) => keys.map(k2 => ({ tab, key: k2 })));
+  if (salePool.length) shopStock.sale = rngPick(rng, salePool);
+  return shopStock;
+}
+/* final shelf price: stock sale beats the reroll discount */
+function stockPrice(tab, key, base) {
+  if (shopStock && shopStock.sale && shopStock.sale.tab === tab && shopStock.sale.key === key)
+    return Math.round(base * (1 - SHOP_STOCK_RULES.saleOff));
+  return shopPrice(base);
+}
+const onSale = (tab, key) => !!shopStock && !!shopStock.sale && shopStock.sale.tab === tab && shopStock.sale.key === key;
+
 function openShop() {
   G.phase = "shop";
-  const owned = game.weapons;
-  const hasArtifact = !!G.artifact;
-  const newWeapons = ["spear", "boomerang", "orbs", "chain"].filter(w => !owned.includes(w));
-  const merchantLine = MERCHANT_LINES[rand(0, MERCHANT_LINES.length - 1)];   // idea 84
-  const g = c => `${shopPrice(c)}g`;
-  const afford = c => G.gold >= shopPrice(c);
-  showOverlay("🛒 CAMPFIRE MERCHANT", `Level ${G.level}/${MAX_LEVEL} · <b>${G.gold}g</b><br><span class="merchant">“${merchantLine}”</span>`, null, null, [
-    { label: `🧪 POTION`, note: `${g(40)} — +1`, fn: buyPotion, disabled: !afford(40) },
-    { label: `🍵 FULL HEAL`, note: `${g(30)} — HP to max`, fn: buyHeal, disabled: !afford(30) || G.hp >= G.maxHp },
-    { label: `⚔️ ATK +2`, note: g(80), fn: buyAttack, disabled: !afford(80) },
-    { label: `🛡️ DEF +2`, note: g(100), fn: buyArmor, disabled: !afford(100) },
-    { label: `🔮 ARTIFACT`, note: hasArtifact ? `HAS ${G.artifact}` : `${g(180)} — One trinket`, fn: buyArtifact, disabled: hasArtifact || !afford(180) },
-    { label: `💣 BOMBS x3`, note: g(60), fn: buyBombs, disabled: !afford(60) },
-    { label: `🤖 TURRET`, note: `${g(140)} — G`, fn: buyTurret, disabled: !afford(140) },
-    { label: `🪤 TRAP`, note: `${g(90)} — T`, fn: buyTrap, disabled: !afford(90) },
-    { label: `☠️ CURSED`, note: g(100), fn: buyCursed, disabled: !afford(100) },
-    ...newWeapons.map(w => ({ label: `${WEAPONS[w].icon} ${WEAPONS[w].name}`, note: `${g(WEAPONS[w].cost)} — ${WEAPONS[w].desc}`, fn: buyWeapon.bind(null, w), disabled: !afford(WEAPONS[w].cost) })),
-    { label: `🌊 WAVE BLADE`, note: owned.includes("wave") ? "OWNED" : `${g(150)} — Shockwave`, fn: buyWeapon.bind(null, "wave"), disabled: owned.includes("wave") || !afford(150) },
-    { label: `🏹 CROSSBOW`, note: owned.includes("crossbow") ? "OWNED" : `${g(200)} — Fast bolts`, fn: buyWeapon.bind(null, "crossbow"), disabled: owned.includes("crossbow") || !afford(200) },
-    { label: `🔥 EMBER STAFF`, note: owned.includes("staff") ? "OWNED" : `${g(300)} — Fireball`, fn: buyWeapon.bind(null, "staff"), disabled: owned.includes("staff") || !afford(300) },
-    { label: `🔀 REROLL`, note: `30g`, fn: rerollShop, disabled: G.gold < 30 },
-    { label: `➡️ NEXT DOOR`, fn: nextLevel, primary: true },
-    { label: `⬅️ BACK`, fn: resumePlay },
-  ]);
   checkSetBonus();   // idea 55
+  ensureShopStock();
+  const o = $("overlay");
+  const merchantLine = MERCHANT_LINES[rand(0, MERCHANT_LINES.length - 1)];   // idea 84
+  o.classList.remove("main-menu");
+  o.innerHTML = `
+    <h2>🛒 CAMPFIRE MERCHANT</h2>
+    <p>DEPTH ${G.level}/${MAX_LEVEL} · <b class="gold-txt">${G.gold}g</b>${rerolled ? ' · <span style="color:#6bff9a">25% OFF</span>' : ""}${(G.weaponVoucher || 0) > 0 ? ` · <span style="color:#c084fc">⚔ VOUCHER ×${G.weaponVoucher}</span>` : ""}<br><span class="merchant">“${merchantLine}”</span></p>
+    <div class="shop-tabs"></div>
+    <div class="shop-list"></div>
+    <div class="shop-foot"></div>`;
+  o.style.display = "flex";
+  const tabs = o.querySelector(".shop-tabs");
+  for (const t of SHOP_TABS) {
+    const b = document.createElement("button");
+    b.className = "btn shop-tab" + (shopTab === t.id ? " on" : "");
+    b.textContent = t.label;
+    b.onclick = () => { shopTab = t.id; openShop(); };
+    tabs.appendChild(b);
+  }
+  const list = o.querySelector(".shop-list");
+  for (const it of shopItems(shopTab)) list.appendChild(shopCard(it));
+  const foot = o.querySelector(".shop-foot");
+  const reroll = document.createElement("button");
+  reroll.className = "btn";
+  reroll.textContent = "🔀 REROLL — 30g · 25% off";
+  reroll.disabled = G.gold < 30;
+  reroll.style.opacity = reroll.disabled ? ".4" : "1";
+  reroll.onclick = rerollShop;
+  const next = document.createElement("button");
+  next.className = "btn";
+  next.textContent = "➡️ NEXT DOOR";
+  next.style.background = "#3a2c5a";
+  next.onclick = nextLevel;
+  const back = document.createElement("button");
+  back.className = "btn";
+  back.textContent = "⬅️ BACK";
+  back.onclick = resumePlay;
+  foot.append(reroll, next, back);
+  o.dataset.nav = "1";
+  const navBtns = [...o.querySelectorAll("button.btn")].filter(b => !b.disabled);
+  if (navBtns[0]) navBtns[0].focus();
 }
 
-/* idea 56: reroll — 25% off everything next visit */
+/* one purchasable object per card: name · category · effect · price · state */
+function shopCard(it) {
+  const card = document.createElement("div");
+  card.className = "shop-item" + (it.state === "locked" ? " locked" : "");
+  card.innerHTML = `
+    <div class="si-main">
+      <div class="si-title"><span class="si-icon">${it.icon}</span><span class="si-name">${it.name}</span><span class="si-cat">${it.cat}</span></div>
+      <div class="si-desc">${it.desc}</div>
+      ${it.note ? `<div class="si-note">${it.note}</div>` : ""}
+    </div>
+    <div class="si-side">
+      <div class="si-price ${it.price == null ? "owned" : ""}">${it.price != null ? it.price + "g" : "OWNED"}${it.sale ? ' <span class="si-sale">SALE −35%</span>' : ""}</div>
+      <button class="btn si-buy">${it.btn}</button>
+    </div>`;
+  const b = card.querySelector("button");
+  b.disabled = !it.fn;
+  b.style.opacity = b.disabled ? ".45" : "1";
+  b.style.cursor = b.disabled ? "not-allowed" : "pointer";
+  if (it.fn) b.onclick = it.fn;
+  return card;
+}
+
+/* stock for the selected category — only what the merchant carried today */
+function shopItems(tab) {
+  ensureShopStock();
+  const stock = shopStock;
+  const items = [];
+  const priced = (icon, name, cat, desc, base, key, buyFn, opts = {}) => {
+    const price = stockPrice(tab, key, base);
+    const sale = onSale(tab, key);
+    let btn = "BUY", fn = null, priceShown = price;
+    if (opts.forceBtn) { btn = opts.forceBtn; priceShown = null; }
+    else if (G.gold >= price) fn = () => buyFn(price);
+    else btn = "NOT ENOUGH GOLD";
+    items.push({ icon, name, cat, desc, price: priceShown, btn, fn, note: opts.note, sale });
+  };
+
+  if (tab === "potion") {
+    if (stock.potion.includes("potion")) priced("🧪", "HEALTH POTION", "CONSUMABLE", "Restores 40 HP · drink with <span class='kbd'>E</span>", 40, "potion", buyPotion);
+    if (stock.potion.includes("power")) priced("💪", "POWER POTION", "CONSUMABLE", "+40% attack damage for 30s", 50, "power", buyPowerPotion);
+    if (stock.potion.includes("swift")) priced("💨", "SWIFT POTION", "CONSUMABLE", "+30% move speed for 30s", 50, "swift", buySwiftPotion);
+    if (stock.potion.includes("bombs")) priced("💣", "BOMBS ×3", "CONSUMABLE", "Throw with <span class='kbd'>F</span> · wide blast", 60, "bombs", buyBombs);
+    if (stock.potion.includes("turret")) priced("🤖", "TURRET", "CONSUMABLE", "Deploy with <span class='kbd'>G</span> · fires 8s", 140, "turret", buyTurret);
+    if (stock.potion.includes("trap")) priced("🪤", "BEAR TRAP", "CONSUMABLE", "Set with <span class='kbd'>T</span> · holds a foe", 90, "trap", buyTrap);
+  } else if (tab === "health") {
+    if (stock.health.includes("heal")) priced("🍵", "FULL HEAL", "HEALTH", "HP restored to max", 30, "heal", buyHeal, { note: G.hp >= G.maxHp ? "ALREADY AT FULL HP" : null });
+    if (stock.health.includes("maxhp")) priced("❤️", "MAX HP +25", "HEALTH", "Raises your health ceiling — this run", 90, "maxhp", buyMaxHp,
+      { note: canIncreaseMaxHp() ? null : "LOCKED ON EXTREME — heals 25 instead" });
+    if (stock.health.includes("lifestone")) {
+      const stones = G.lifestones || 0;
+      priced("🔮", "LIFESTONE", "HEALTH", "+3% lifesteal on every kill", 150, "lifestone", buyLifestone,
+        { note: stones >= 3 ? "MAXED — 3 STONES" : stones > 0 ? `OWNED ×${stones} · stacks to ×3` : null, forceBtn: stones >= 3 ? "MAXED" : null });
+    }
+  } else if (tab === "armour") {
+    if (stock.armour.includes("def")) priced("🛡️", "DEF +2", "ARMOUR", "Less damage from every blow", 100, "def", buyArmor);
+    if (stock.armour.includes("aegis")) priced("🔷", "AEGIS SHARD", "ARMOUR", "+25 shield · regenerates out of combat", 120, "aegis", buyShield,
+      { note: G.shieldMax > 0 ? `SHIELD ${Math.round(G.shield)}/${Math.round(G.shieldMax)} · stacks` : null });
+    if (stock.armour.includes("thorns")) priced("🌵", "THORN MAIL", "ARMOUR", "Reflect 20% of damage taken", 130, "thorns", buyThorns,
+      { note: G.thornMail ? "OWNED" : null, forceBtn: G.thornMail ? "OWNED" : null });
+    if (stock.armour.includes("artifact")) items.push({
+      icon: "📜", name: "ARTIFACT", cat: "TRINKET", desc: G.artifact ? `Carrying: ${G.artifact}` : "One passive trinket — your pick",
+      price: G.artifact ? null : stockPrice(tab, "artifact", 180),
+      btn: G.artifact ? "OWNED" : G.gold >= stockPrice(tab, "artifact", 180) ? "BUY" : "NOT ENOUGH GOLD",
+      fn: G.artifact || G.gold < stockPrice(tab, "artifact", 180) ? null : buyArtifact,
+      sale: onSale(tab, "artifact"),
+    });
+  } else if (tab === "ranged" || tab === "weapon") {
+    const type = tab === "weapon" ? "melee" : "ranged";
+    const stocked = tab === "weapon" ? stock.weapon : stock.ranged;
+    if (type === "melee") items.push(weaponShopItem("sword"));   // the old reliable never leaves the shelf
+    for (const w of stocked) items.push(weaponShopItem(w));
+    /* owned-but-stowed weapons stay reachable from the shop for easy equipping */
+    for (const w of Object.keys(WEAPONS)) {
+      if (WEAPONS[w].type !== type || WEAPONS[w].secret || !game.weapons.includes(w) || stocked.includes(w)) continue;
+      if (type === "melee" && w === "sword") continue;
+      items.push(weaponShopItem(w));
+    }
+  } else if (tab === "cursed") {
+    for (const id of stock.cursed) {
+      const c = CURSED_ITEMS.find(x => x.id === id);
+      if (!c) continue;
+      items.push({
+        icon: c.icon, name: c.name, cat: c.ngPlusOnly ? "CURSED · NG+" : "CURSED",
+        desc: `<span style="color:#6bff9a">+ ${c.benefit}</span> · <span style="color:#ff6b6b">− ${c.drawback}</span>`,
+        price: stockPrice(tab, id, c.cost),
+        btn: G.gold >= stockPrice(tab, id, c.cost) ? "BUY" : "NOT ENOUGH GOLD",
+        fn: G.gold >= stockPrice(tab, id, c.cost) ? () => buyCursedItem(c) : null,
+        sale: onSale(tab, id),
+      });
+    }
+  }
+  return items;
+}
+
+/* weapons: owned/equip/buy states; a voucher makes any shelf weapon free */
+function weaponShopItem(w) {
+  const def = WEAPONS[w];
+  const owned = game.weapons.includes(w);
+  const equipped = def.type === "melee" ? game.weapon === w : game.secondary === w;
+  const tab = def.type === "melee" ? "weapon" : "ranged";
+  const it = { icon: def.icon, name: def.name, cat: def.type === "melee" ? "MELEE · SPACE" : "RANGED · R", desc: def.desc };
+  if (owned && equipped) {
+    it.price = null;
+    it.note = def.type === "melee" ? "In your primary hand" : "In your ranged hand";
+    it.btn = "EQUIPPED";
+    return it;
+  }
+  if (owned) {
+    it.price = null;
+    it.btn = "EQUIP";
+    it.fn = () => { equipWeapon(w); openShop(); };
+    return it;
+  }
+  const price = stockPrice(tab, w, def.cost);
+  it.price = price;
+  it.sale = onSale(tab, w);
+  const voucher = (G.weaponVoucher || 0) > 0;
+  if (voucher) {
+    it.btn = "BUY";
+    it.note = "VOUCHER — free";
+    it.fn = () => buyWeapon(w);
+  } else {
+    it.btn = G.gold >= price ? "BUY" : "NOT ENOUGH GOLD";
+    it.fn = G.gold >= price ? () => buyWeapon(w, price) : null;
+  }
+  return it;
+}
+
+function equipWeapon(w) {
+  const def = WEAPONS[w];
+  if (!def) return;
+  if (def.type === "melee") selectPrimary(w);
+  else { game.secondary = w; flash(`${def.icon} ${def.name} — ranged hand (R)`, "#6fc3ff"); renderHUD(); }
+}
+
+/* idea 56: reroll — restocks the shelf AND knocks 25% off next visit */
 let rerolled = false;
+let stockSalt = 0;
 function rerollShop() {
   G.gold -= 30;
   rerolled = true;
-  flash("REROLL: 25% OFF", "#6bff9a");
+  stockSalt++;
+  shopStock = null;
+  flash("REROLL: NEW STOCK + 25% OFF", "#6bff9a");
   openShop();
 }
 function shopPrice(cost) { return Math.round(cost * (rerolled ? 0.75 : 1)); }
 
-function buyPotion() { G.gold -= shopPrice(40); G.potions++; SFX.buy(); flash("Bought potion"); renderHUD(); openShop(); }
-function buyHeal()   { G.gold -= shopPrice(30); G.hp = G.maxHp; SFX.buy(); flash("Fully healed!", "#6bff9a"); renderHUD(); openShop(); }
-function buyAttack() { G.gold -= shopPrice(80); G.atk += 2; G.sword++; SFX.buy(); flash("ATK +2"); renderHUD(); openShop(); }
-function buyArmor()  { G.gold -= shopPrice(100); G.def += 2; G.armor++; SFX.buy(); flash("DEF +2"); renderHUD(); openShop(); }
-function buyBombs()  { G.gold -= shopPrice(60); G.bombs = (G.bombs || 0) + 3; SFX.buy(); flash("+3 bombs (F)"); renderHUD(); openShop(); }
-function buyTurret() { G.gold -= shopPrice(140); G.turrets = (G.turrets || 0) + 1; SFX.buy(); flash("+1 turret (G)"); renderHUD(); openShop(); }
-function buyTrap()   { G.gold -= shopPrice(90); G.traps = (G.traps || 0) + 1; SFX.buy(); flash("+1 bear trap (T)"); renderHUD(); openShop(); }
-function buyCursed() {
-  const c = CURSED_ITEMS[rand(0, CURSED_ITEMS.length - 1)];
-  G.gold -= shopPrice(100);
+function buyPotion(price) { G.gold -= price != null ? price : shopPrice(40); G.potions++; SFX.buy(); flash("Bought potion"); renderHUD(); saveGame(); openShop(); }
+function buyHeal(price)   { G.gold -= price != null ? price : shopPrice(30); G.hp = G.maxHp; SFX.buy(); flash("Fully healed!", "#6bff9a"); renderHUD(); saveGame(); openShop(); }
+function buyPowerPotion(price) { G.gold -= price != null ? price : shopPrice(50); G.tempAtkT = 30; SFX.buy(); flash("POWER POTION — +40% ATK for 30s!", "#ffd166"); renderHUD(); saveGame(); openShop(); }
+function buySwiftPotion(price) { G.gold -= price != null ? price : shopPrice(50); G.tempSpdT = 30; SFX.buy(); flash("SWIFT POTION — +30% speed for 30s!", "#8fd4ff"); renderHUD(); saveGame(); openShop(); }
+function buyMaxHp(price) {
+  G.gold -= price != null ? price : shopPrice(90);
+  if (canIncreaseMaxHp()) { G.maxHp += 25; G.hp += 25; flash("MAX HP +25!", "#6bff9a"); }
+  else { G.hp = Math.min(G.maxHp, G.hp + 25); flash("Healed 25 (max HP locked)", "#9a90b8"); }
+  SFX.buy(); renderHUD(); saveGame(); openShop();
+}
+function buyLifestone(price) {
+  if ((G.lifestones || 0) >= 3) return;
+  G.gold -= price != null ? price : shopPrice(150);
+  G.lifestones = (G.lifestones || 0) + 1;
+  G.lifesteal = (G.lifesteal || 0) + 0.03;
+  SFX.buy(); flash(`LIFESTONE ×${G.lifestones} — +3% lifesteal`, "#ff6b6b"); renderHUD(); saveGame(); openShop();
+}
+function buyShield(price) { G.gold -= price != null ? price : shopPrice(120); G.shieldMax += 25; G.shield += 25; SFX.buy(); flash("AEGIS SHARD — +25 shield!", "#8fd4ff"); renderHUD(); saveGame(); openShop(); }
+function buyThorns(price) { if (G.thornMail) return; G.gold -= price != null ? price : shopPrice(130); G.thornMail = true; G.thorns = Math.max(G.thorns || 0, 0.2); SFX.buy(); flash("THORN MAIL — reflect 20%!", "#7ac74f"); renderHUD(); saveGame(); openShop(); }
+function buyAttack(price) { G.gold -= price != null ? price : shopPrice(80); G.atk += 2; G.sword++; SFX.buy(); flash("ATK +2"); renderHUD(); saveGame(); openShop(); }
+function buyArmor(price)  { G.gold -= price != null ? price : shopPrice(100); G.def += 2; G.armor++; SFX.buy(); flash("DEF +2"); renderHUD(); saveGame(); openShop(); }
+function buyBombs(price)  { G.gold -= price != null ? price : shopPrice(60); G.bombs = (G.bombs || 0) + 3; SFX.buy(); flash("+3 bombs (F)"); renderHUD(); saveGame(); openShop(); }
+function buyTurret(price) { G.gold -= price != null ? price : shopPrice(140); G.turrets = (G.turrets || 0) + 1; SFX.buy(); flash("+1 turret (G)"); renderHUD(); saveGame(); openShop(); }
+function buyTrap(price)   { G.gold -= price != null ? price : shopPrice(90); G.traps = (G.traps || 0) + 1; SFX.buy(); flash("+1 bear trap (T)"); renderHUD(); saveGame(); openShop(); }
+function buyCursedItem(c) {
+  const price = stockPrice("cursed", c.id, c.cost);
+  if (G.gold < price || (G.cursedOwned || []).includes(c.id)) return;
+  G.gold -= price;
   c.apply();
-  flash(`CURSED: ${c.name} — ${c.desc}`, "#c084fc");
-  renderHUD();
+  G.cursedOwned = (G.cursedOwned || []).concat(c.id);
+  SFX.buy();
+  flash(`CURSED: ${c.name} — ${c.benefit} / ${c.drawback}`, "#c084fc");
+  renderHUD(); saveGame();
   openShop();
 }
 
@@ -1444,18 +2111,45 @@ function checkSetBonus() {
   }
 }
 
+/* weapon synergies: discovered the moment both halves are owned */
+function checkSynergies() {
+  const owned = new Set(game.weapons);
+  for (const s of SYNERGIES) {
+    if (!(G.syn || []).includes(s.id) && s.test(owned)) {
+      G.syn = (G.syn || []).concat(s.id);
+      STATS.synergiesFound = (STATS.synergiesFound || 0) + 1;
+      saveStats();
+      checkAchievements();
+      game.shake = Math.max(game.shake, 0.15);
+      SFX.levelup();
+      flash(`✦ SYNERGY${s.hidden ? "…?" : ""}: ${s.name} — ${s.desc}`, "#c0a8f0");
+    }
+  }
+}
+
 function buyArtifact() {
   const opts = ARTIFACTS.filter(a => a.name !== G.artifact);
   showOverlay("🔮 CHOOSE AN ARTIFACT", "One passive trinket to carry you through the realm:", null, null,
-    opts.map(a => ({ label: `${a.name} — ${a.desc}`, fn: () => { G.gold -= 180; G.artifact = a.name; a.apply(); SFX.buy(); flash(`ARTIFACT: ${a.name}!`, "#c084fc"); renderHUD(); openShop(); } })));
+    opts.map(a => ({ label: `${a.name} — ${a.desc}`, fn: () => { G.gold -= shopPrice(180); G.artifact = a.name; a.apply(); SFX.buy(); flash(`ARTIFACT: ${a.name}!`, "#c084fc"); renderHUD(); saveGame(); openShop(); } })));
 }
 
-function buyWeapon(w) {
-  G.gold -= WEAPONS[w].cost;
+function buyWeapon(w, price) {
+  if (game.weapons.includes(w)) return;
+  const def = WEAPONS[w];
+  const cost = price != null ? price : stockPrice(def.type === "melee" ? "weapon" : "ranged", w, def.cost);
+  if ((G.weaponVoucher || 0) > 0) {
+    G.weaponVoucher--;
+    flash("⚔ VOUCHER redeemed — the merchant grumbles", "#c084fc");
+  } else {
+    if (G.gold < cost) return;
+    G.gold -= cost;
+  }
   game.weapons.push(w);
-  game.secondary = w;
+  equipWeapon(w);
   SFX.buy();
-  flash(`UNLOCKED ${WEAPONS[w].icon} ${WEAPONS[w].name}! (R to fire)`, "#6fc3ff");
+  saveGame();
+  checkSynergies();
+  flash(`UNLOCKED ${def.icon} ${def.name}!`, "#6fc3ff");
   renderHUD();
   openShop();
 }
@@ -1536,6 +2230,7 @@ function openPauseMenu() {
     { label: "▶ RESUME", fn: resumePaused, primary: true },
     { label: "🔄 RESTART LEVEL", fn: () => { setupLevel(G.level); resumePaused(); } },
     { label: "🔄 RESTART RUN", fn: restartRun },
+    { label: "✦ SYNERGIES", fn: showSynergies },
     { label: "🌀 GOD RUN PERKS", fn: showGodPerks },
     { label: "⚙️ OPTIONS", fn: openOptions },
     { label: "⚙️ DIFFICULTY", fn: openDifficultyMenu },
@@ -1667,6 +2362,11 @@ function resetGame() {
     door: null, loot: [], bossSpawned: false, minionsLeft: 0, hitStop: 0, combo: 0, comboT: 0,
     xp: 0, playerLevel: 1, stamina: STAMINA.max, shield: 0, shieldMax: 0, shieldRegenT: 0,
     lifesteal: 0, thorns: 0, revives: 0, knockMult: 1, goldMult: 1, asMult: 1,
+    atkMult: 1, critDmg: 0, spdMult: 1, enemyDmgMult: 1, dmgTakenMult: 1,
+    tempAtkT: 0, tempSpdT: 0, attackLockT: 0, voidBuffT: 0, voidStreak: 0, voidStreakT: 0,
+    glassEdge: false, cursedOwned: [], lifestones: 0, thornMail: false,
+    lifesteal: 0, thorns: 0, foeSpeedMult: 1, pyreHeart: false,
+    syn: [], weaponVoucher: 0, mod: {}, trial: null,
     perks: [], artifact: null, wLevels: { sword: 1, wave: 1, crossbow: 1, staff: 1 },
     chargeT: 0, charging: false,
   });
@@ -1674,14 +2374,17 @@ function resetGame() {
   G.className = cls || "KNIGHT";
   Object.assign(game, { player: null, enemies: [], projectiles: [], waves: [], effects: [], arcs: [], time: 0, shake: 0, weapon: "sword", secondary: null, weapons: ["sword"],
     obstacles: [], hazards: [], traps: [], crates: [], shrine: null,
-    orbits: [], deployables: [], burnZones: [], hazardZones: [] });
+    orbits: [], deployables: [], burnZones: [], hazardZones: [], gravityWells: [],
+    secrets: [], trialStone: null, gildedMimicSpawned: false });
   rerolled = false;
+  shopStock = null; stockSalt = 0;
   G.aoeZones = []; G.dmgTaken = 0; G.slowmoT = 0; G.branchChosen = false;
   function statsRuns() { try { return STATS.runs || 0; } catch (e) { return 0; } }
   const firstRun = statsRuns() === 0;
   const buttons = [
     { label: "▶ PLAY", fn: () => firstRun ? runTutorial() : beginGame(), primary: true, note: firstRun ? "First run: quick tutorial" : undefined },
     { label: "⚔️ DIFFICULTY", fn: () => { const p=document.getElementById("diffPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: DIFFICULTIES[G.difficulty].name },
+    { label: "✦ MODIFIERS", fn: () => { const p=document.getElementById("modPanel"); if(p) p.style.display=p.style.display==="none"?"flex":"none"; }, note: `${(G.modifiers || []).length}/2 active` },
     { label: "🌀 GOD RUN PERKS", fn: showGodPerks, note: `${GOD_PERKS.unlocked.length}/4 unlocked` },
     { label: "⚙️ SETTINGS", fn: openOptions },
     { label: "🚪 EXIT", fn: () => { flash("Thanks for playing BLOB KNIGHT!", "#ffd166"); setTimeout(()=> { try{ window.close(); }catch(e){} }, 400); } },
@@ -1725,6 +2428,61 @@ function resetGame() {
   const diffBtnEl = [...menuCenter.querySelectorAll("button.btn")].find(b => b.textContent.includes("DIFFICULTY"));
   if (diffBtnEl) diffBtnEl.insertAdjacentElement("afterend", dh);
   else menuCenter.appendChild(dh);
+  /* modifiers panel — risk/reward toggles for the next run (unlocks via feats, never grind) */
+  const mh = document.createElement("div");
+  mh.className = "menu-diff";
+  mh.id = "modPanel";
+  mh.style.display = "none";
+  mh.style.flexDirection = "column";
+  mh.style.alignItems = "center";
+  mh.style.width = "100%";
+  mh.style.maxWidth = "340px";
+  mh.style.gap = "6px";
+  mh.style.marginTop = "6px";
+  mh.style.marginBottom = "6px";
+  const syncModButton = () => {
+    const b = [...menuCenter.querySelectorAll("button.btn")].find(btn => btn.textContent.includes("MODIFIERS"));
+    if (b) b.textContent = `✦ MODIFIERS — ${(G.modifiers || []).length}/2 active`;
+  };
+  for (const mod of MODIFIERS) {
+    const unlocked = mod.unlock();
+    const active = (G.modifiers || []).includes(mod.id);
+    const b = document.createElement("button");
+    b.className = "btn diff-chip" + (active ? " on" : "");
+    b.textContent = unlocked ? `${mod.icon} ${mod.name} — ${mod.desc}` : `🔒 ${mod.name} — unlock: ${mod.hint}`;
+    b.style.width = "100%";
+    b.style.fontSize = "11px";
+    b.style.justifyContent = "center";
+    b.style.padding = "8px 12px";
+    if (!unlocked) { b.style.opacity = ".45"; b.style.cursor = "not-allowed"; }
+    b.onclick = () => {
+      if (!unlocked) { flash(`${mod.name}: ${mod.hint}`, "#9a90b8"); return; }
+      const cur = G.modifiers || (G.modifiers = []);
+      const i = cur.indexOf(mod.id);
+      if (i >= 0) cur.splice(i, 1);
+      else if (cur.length >= 2) { flash("At most two modifiers per run", "#9a90b8"); return; }
+      else cur.push(mod.id);
+      b.classList.toggle("on", cur.includes(mod.id));
+      syncModButton();
+    };
+    mh.appendChild(b);
+  }
+  const modBtnEl = [...menuCenter.querySelectorAll("button.btn")].find(b => b.textContent.includes("MODIFIERS"));
+  if (modBtnEl) modBtnEl.insertAdjacentElement("afterend", mh);
+  else menuCenter.appendChild(mh);
+}
+
+/* discovered + known synergies (hidden pairs stay hidden until found) */
+function showSynergies() {
+  const syn = G.syn || [];
+  const rows = SYNERGIES.filter(s => !s.hidden || syn.includes(s.id)).map(s => {
+    const found = syn.includes(s.id);
+    return `<div style="padding:8px 0;border-bottom:1px solid #1e1a33;margin:0 12px;text-align:left;">
+      <div style="font-weight:bold;letter-spacing:1px;color:${found ? "#c0a8f0" : "#9a90b8"}">${found ? "✦" : "🔒"} ${found ? s.name : "???"} <span style="font-weight:normal;font-size:11px;color:#9a90b8">· ${s.pair}</span></div>
+      <div style="color:#c8c0d8;font-size:12px;">${found ? s.desc : "not yet discovered"}</div>
+    </div>`;
+  }).join("");
+  showOverlay("✦ SYNERGIES", `<div style="color:#9a90b8;font-size:12px;margin-bottom:8px;">Some weapon pairs are worth more than the sum of their parts. Buy both halves to wake them.</div>${rows}`, "⬅ BACK", openPauseMenu);
 }
 
 /* idea 36: boss rush — clear each level's boss directly */
@@ -1747,6 +2505,15 @@ function resetRunStart() {
   G.gold = 0; G.potions = 2; G.sword = 1; G.armor = 1; G.kills = 0; G.crit = 0;
   G.stamina = STAMINA.max; G.shield = 0; G.shieldMax = 0;
   G.perks = []; G.artifact = null; G.wLevels = { sword: 1, wave: 1, crossbow: 1, staff: 1 };
+  /* cursed items + shop consumables never survive a retry */
+  G.atkMult = 1; G.critDmg = 0; G.spdMult = 1; G.enemyDmgMult = 1; G.dmgTakenMult = 1;
+  G.tempAtkT = 0; G.tempSpdT = 0; G.attackLockT = 0; G.voidBuffT = 0; G.voidStreak = 0; G.voidStreakT = 0;
+  G.glassEdge = false; G.cursedOwned = []; G.lifestones = 0; G.thornMail = false;
+  G.lifesteal = 0; G.thorns = 0;
+  G.atkMult = 1; G.foeSpeedMult = 1; G.pyreHeart = false; G.syn = []; G.weaponVoucher = 0;
+  G.mod = {}; G.trial = null;
+  shopStock = null; stockSalt = 0;
+  game.weapon = "sword";
 }
 /* idea: instant retry — skip the menu entirely so deaths never break the flow */
 function restartRun() {
@@ -1822,6 +2589,17 @@ addEventListener("keydown", e => {
 
 function hideOverlay() { const o=$("overlay"); if(o){ o.innerHTML=""; o.style.display="none"; o.dataset.nav=""; } if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); }
 
+/* modifiers are chosen at the menu and bind the run at its start */
+function applyModifier(id) {
+  const m = G.mod || (G.mod = {});
+  const mul = (k, v) => { m[k] = (m[k] || 1) * v; };
+  if (id === "bloodmoon") { mul("countMult", 1.5); G.goldMult = (G.goldMult || 1) * 1.5; }
+  if (id === "swarmmod") { mul("countMult", 1.8); m.foeHpMult = 0.6; }
+  if (id === "frenzy") { m.frenzy = true; G.goldMult = (G.goldMult || 1) * 1.4; }
+  if (id === "glass") { m.hpMult = 0.4; m.atkMult = 1.6; }
+  if (id === "dark") { m.dark = true; m.eliteMult = 2; m.secretMult = 2; }
+}
+
 function beginGame() {
   /* name entry removed — the hero keeps their name across runs (idea: no menu detour after death) */
   setTouchUI(true);
@@ -1841,6 +2619,20 @@ function beginGame() {
   /* second-last difficulty (extreme) — fixed 30 HP, no max increase; godrun — 2 HP */
   if (G.difficulty === "extreme") { G.maxHp = 30; G.hp = 30; G.extremeMaxLocked = true; }
   else if (G.difficulty === "godrun") { G.maxHp = 2; G.hp = 2; }
+  /* replayability: a fresh seed each run (the daily keeps its own), modifiers bind now */
+  if (!G.daily && !G.keepSeed) G.runSeed = (Math.random() * 2 ** 31) | 0;
+  G.keepSeed = false;
+  G.mod = {};
+  for (const id of G.modifiers || []) {
+    const mod = MODIFIERS.find(x => x.id === id);
+    if (mod && mod.unlock()) applyModifier(id);
+  }
+  if (G.mod.atkMult) G.atkMult = (G.atkMult || 1) * G.mod.atkMult;
+  if (G.mod.hpMult) { G.maxHp = Math.max(10, Math.round(G.maxHp * G.mod.hpMult)); G.hp = Math.min(G.hp, G.maxHp); }
+  if ((G.modifiers || []).length) flash(`MODIFIERS: ${G.modifiers.map(id => (MODIFIERS.find(m => m.id === id) || {}).name || id).join(" + ")}`, "#c084fc");
+  shopStock = null; stockSalt = 0;
+  G.syn = []; G.weaponVoucher = 0;
+  checkSynergies();
   // God Run perks — only active if unlocked, in order 3→4→1→2
   if (G.difficulty === "godrun") {
     if (isGodPerkUnlocked(4)) G.asMult = (G.asMult || 1) * 0.65; // Fast Attacks: 35% faster
@@ -1894,7 +2686,9 @@ function renderHUD() {
   $("hBomb").textContent = "💣 " + (G.bombs || 0);
   $("hTurret").textContent = "🤖 " + (G.turrets || 0);
   $("hTrap").textContent = "🪤 " + (G.traps || 0);
-  $("hWeapon").textContent = WEAPONS.sword.icon + " " + WEAPONS.sword.name;
+  const pri = WEAPONS[game.weapon] || WEAPONS.sword;
+  $("hWeapon").textContent = pri.icon + " " + pri.name;
+  $("hWeapon").title = "Primary hand — SPACE";
   const sec = game.secondary && WEAPONS[game.secondary] ? WEAPONS[game.secondary] : null;
   $("hSecondary").textContent = sec ? `${sec.icon} ${sec.name}` : "—";
   $("hSecondary").classList.toggle("on", !!sec);
@@ -1988,7 +2782,10 @@ function updateHintKeys() {
   const el = $("hintKeys");
   if (!el) return;
   const hasSec = game.secondary && WEAPONS[game.secondary];
-  const parts = ["SPACE ⚔️", "R 🏹", "SHIFT 💨", "E 🧪", "F 💣", "G 🤖", "T 🪤"];
+  const hasMelee = game.weapons.filter(w => WEAPONS[w] && WEAPONS[w].type === "melee").length > 1;
+  const parts = ["SPACE ⚔️"];
+  if (hasMelee) parts.push("C ⚔️");
+  parts.push("R 🏹", "SHIFT 💨", "E 🧪", "F 💣", "G 🤖", "T 🪤");
   const base = hasSec ? parts : parts.filter(p => !p.startsWith("R "));
   el.textContent = base.join("  ") + "   P ⏸   M 🔇";
 }

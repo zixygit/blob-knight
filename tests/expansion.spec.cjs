@@ -101,9 +101,9 @@ test.describe("chapter two expansion", () => {
       for (const e of [...game.enemies]) if (!e.isBoss) killEnemy(e, true);
       return { w1, w2, w3, boss: game.enemies.some(e => e.isBoss), bossName: game.enemies.find(e => e.isBoss)?.name, spawned: game.G.bossSpawned };
     });
-    expect(state.w1).toBe(4);       // wave 1: 2 guards + brute + bomber
-    expect(state.w2).toBe(4);       // wave 2: commander + shielder + 2 shooters
-    expect(state.w3).toBe(5);       // wave 3: 2 brutes + weaver + 2 bombers
+    expect(state.w1).toBe(4);                        // wave 1: 2 guards + brute + bomber (authored)
+    expect(state.w2).toBeGreaterThanOrEqual(4);      // wave 2 spine + possible seed-rolled squad
+    expect(state.w3).toBeGreaterThanOrEqual(5);      // wave 3 spine + possible squad
     expect(state.spawned).toBe(true);
     expect(state.bossName).toContain("FORGEMASTER ORUN");
     expect(errs).toEqual([]);
