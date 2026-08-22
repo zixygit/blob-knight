@@ -2368,13 +2368,33 @@ function toggleMute() {
 }
 
 /* menu panels: opening one folds the other — the menu never crowds itself */
+function closeMenuPanels() {
+  const o = $("overlay");
+  for (const id of ["diffPanel", "modPanel"]) {
+    const p = document.getElementById(id);
+    if (p) p.style.display = "none";
+  }
+  if (o) o.scrollTop = 0;
+}
 function toggleMenuPanel(id, siblingId) {
   const p = document.getElementById(id);
   if (!p) return;
-  const opening = p.style.display === "none";
-  p.style.display = opening ? "flex" : "none";
+  const hidden = getComputedStyle(p).display === "none" || p.style.display === "none";
+  const opening = hidden;
+  // close sibling if we are opening
   const sib = document.getElementById(siblingId);
   if (sib && opening) sib.style.display = "none";
+  p.style.display = opening ? "flex" : "none";
+  const o = $("overlay");
+  if (opening) {
+    // let the newly opened panel scroll into view so options are reachable
+    requestAnimationFrame(() => {
+      p.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (o) o.scrollTop = Math.max(0, o.scrollHeight - o.clientHeight - 4);
+    });
+  } else if (o) {
+    o.scrollTop = 0;
+  }
 }
 
 /* browsers block window.close() for tabs they opened — leave on a farewell, not a dead flash */
@@ -2456,6 +2476,9 @@ function resetGame() {
       const diffBtn = [...menuCenter.querySelectorAll("button.btn")].find(btn => btn.textContent.includes("DIFFICULTY"));
       if (diffBtn) diffBtn.textContent = `⚔️ DIFFICULTY — ${d.name}`;
       dh.style.display = "none";   // a choice made — the panel folds itself
+      const o = $("overlay");
+      if (o) o.scrollTop = 0;
+      if (diffBtn) { diffBtn.focus(); diffBtn.scrollIntoView({ behavior: "smooth", block: "center" }); }
     };
     dh.appendChild(b);
   }
@@ -2499,6 +2522,10 @@ function resetGame() {
       b.classList.toggle("on", cur.includes(mod.id));
       syncModButton();
       mh.style.display = "none";   // a choice made — the panel folds itself
+      const o = $("overlay");
+      if (o) o.scrollTop = 0;
+      const mBtn = [...menuCenter.querySelectorAll("button.btn")].find(btn => btn.textContent.includes("MODIFIERS"));
+      if (mBtn) { mBtn.focus(); mBtn.scrollIntoView({ behavior: "smooth", block: "center" }); }
     };
     mh.appendChild(b);
   }
@@ -2589,13 +2616,18 @@ function overlayButtons() {
   if (!o || o.dataset.nav !== "1") return [];
   return [...o.querySelectorAll("button.btn")].filter(b => {
     if (b.disabled) return false;
-    // only visible buttons — hidden difficulty options should not block navigation
+    // only visible buttons — hidden difficulty/modifier options should not block navigation
     if (b.offsetParent === null) return false;
     const cs = getComputedStyle(b);
     if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return false;
-    // also check parent diffPanel visibility
-    const panel = document.getElementById("diffPanel");
-    if (panel && panel.contains(b) && panel.style.display === "none") return false;
+    // also check parent panels visibility (both difficulty and modifiers)
+    for (const pid of ["diffPanel", "modPanel"]) {
+      const panel = document.getElementById(pid);
+      if (panel && panel.contains(b)) {
+        const pcs = getComputedStyle(panel);
+        if (pcs.display === "none" || panel.style.display === "none") return false;
+      }
+    }
     return true;
   });
 }
@@ -2608,6 +2640,18 @@ function overlayFocusMove(dir) {
   btns[idx].focus();
 }
 addEventListener("keydown", e => {
+  // if a difficulty/modifier panel is open, ESC folds it first — and scrolling back up is always allowed
+  const diffP = document.getElementById("diffPanel");
+  const modP = document.getElementById("modPanel");
+  const anyPanelOpen = (diffP && getComputedStyle(diffP).display !== "none" && diffP.style.display !== "none") || (modP && getComputedStyle(modP).display !== "none" && modP.style.display !== "none");
+  if (e.key.toLowerCase() === "escape" && anyPanelOpen) {
+    e.preventDefault(); e.stopPropagation();
+    closeMenuPanels();
+    // return focus to the trigger that owned the panel
+    const fallback = [...document.querySelectorAll("#overlay .main-menu-center button.btn")].find(b => /DIFFICULTY|MODIFIERS/.test(b.textContent));
+    if (fallback) fallback.focus();
+    return;
+  }
   const btns = overlayButtons();
   if (!btns.length) return;
   const k = e.key.toLowerCase();
@@ -2619,6 +2663,21 @@ addEventListener("keydown", e => {
   } else if (k === "escape") {
     const back = btns.find(b => /back|cancel|close|resume/i.test(b.textContent));
     if (back) { e.preventDefault(); e.stopPropagation(); back.click(); }
+  }
+}, true);
+// click on the dimmed overlay background (outside the centered menu) also folds any open panel — user can "scroll back up and tap empty space to close"
+addEventListener("click", e => {
+  const o = $("overlay");
+  if (!o || o.style.display === "none") return;
+  const center = o.querySelector(".main-menu-center");
+  const diffP = document.getElementById("diffPanel");
+  const modP = document.getElementById("modPanel");
+  const anyOpen = (diffP && getComputedStyle(diffP).display !== "none" && diffP.style.display !== "none") || (modP && getComputedStyle(modP).display !== "none" && modP.style.display !== "none");
+  if (!anyOpen || !center) return;
+  // if the click landed directly on the overlay but outside the centered menu/button cluster, close panels
+  if (e.target === o || (e.target instanceof HTMLElement && !center.contains(e.target) && !e.target.closest(".menu-diff"))) {
+    // don't interfere when clicking a real menu button
+    closeMenuPanels();
   }
 }, true);
 
